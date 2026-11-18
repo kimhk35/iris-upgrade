@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="title">IRIS — 내 PC 안의 AI 비서 작업실</title>
+<meta name="description" data-i18n-content="desc" content="IRIS는 폴더 체계와 규칙, AI 에이전트(Claude Code·Codex)를 한 상자에 담아 내 PC에 설치하는 무료 오픈소스 비서 작업실입니다. zip 하나, 두 번 클릭.">
+<meta property="og:title" content="IRIS">
+<meta property="og:description" content="해결은 에이전트가, 정의는 우리가.">
+<meta property="og:image" content="https://iris-workspace.com/img/face-home.png">
+<meta property="og:url" content="https://iris-workspace.com/">
+<meta name="theme-color" content="#060608">
+<link rel="icon" href="favicon.ico">
+<link rel="preload" href="fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="home.css">
+</head>
+<body>
+<a class="skip" href="#download" data-i18n="p.skip">내려받기로 바로 가기</a>
+<canvas id="gl" aria-hidden="true"></canvas>
+<div class="grain" aria-hidden="true"></div>
+<div class="vig" aria-hidden="true"></div>
+
+<header class="top" id="top">
+  <a class="brand" href="/" aria-label="IRIS">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="12" cy="12" r="10.4"/><circle cx="12" cy="12" r="5.2"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>
+    <span>IRIS</span>
+  </a>
+  <nav class="nav" aria-label="주 메뉴">
+    <a href="#about" data-i18n="nav.what">소개</a>
+    <a href="#how" data-i18n="nav.how">작동</a>
+    <a href="/install" data-i18n="nav.install">설치 안내</a>
+    <a href="https://github.com/Feynman520" rel="noopener">GitHub</a>
+  </nav>
+  <div class="tools">
+    <div class="lang" role="group" aria-label="언어 / Language">
+      <button type="button" data-lang="ko" aria-pressed="true">KO</button>
+      <button type="button" data-lang="en" aria-pressed="false">EN</button>
+    </div>
+    <a class="top-dl" href="#download" data-i18n="nav.download">내려받기</a>
+  </div>
+</header>
+
+<div class="chap mono" aria-hidden="true"><span id="chap">N° 01 — AI WORKSPACE ON YOUR PC</span></div>
+<div class="side l mono" aria-hidden="true">AI WORKSPACE ON YOUR PC — WINDOWS 10 / 11 — 64-BIT</div>
+<div class="side r" aria-hidden="true"><span class="cnt" id="cnt">01</span><span class="bar"><i id="bar"></i></span><span class="cnt">08</span></div>
+
+<main>
+<!-- ① 첫 화면 -->
+<section class="sc hero" id="hero" data-chap="N° 01 — AI WORKSPACE ON YOUR PC" style="--h:135vh">
+  <div class="stage">
+    <div class="giant-fallback" aria-hidden="true">IRIS</div>
+    <div class="hero-top mono fade" style="--d:1.6s"><span class="scroll"><i></i>SCROLL TO EXPLORE</span></div>
+    <div class="hero-bot">
+      <div class="sl">
+        <p class="kr wipe" style="--d:1.9s" data-i18n="p.kicker">내 PC 안의 AI 비서 작업실</p>
+        <h1 class="slogan"><span class="ln"><span style="--d:2s" data-i18n="p.motto1">해결은 에이전트가,</span></span><span class="ln"><span style="--d:2.1s"><em data-i18n="p.motto2">정의는 우리가.</em></span></span></h1>
+        <p class="sub fade" style="--d:2.25s" data-i18n="p.sub">폴더 체계와 규칙, 에이전트(Claude Code · Codex)를 한 상자에 담아 zip 하나로 설치합니다.</p>
+      </div>
+      <div class="hero-cta fade" style="--d:2.35s">
+        <a class="btn" id="dock-dl" href="https://iris-workspace-dl.pages.dev/IRIS-Setup_v2.0.55_2026-11-09.zip"><span data-i18n="dock.title">IRIS 내려받기</span><span class="o" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2v11M3.5 8.5 8 13l4.5-4.5"/></svg></span></a>
+        <div class="chips mono"><span>WINDOWS 10/11</span><span id="chip-ver">v2.0.55</span><span id="chip-size">556.0 MB</span><span data-i18n="chip.free">무료 · MIT</span></div>
+        <a class="small-link" href="/install" data-i18n="p.guide">설치 안내 보기</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ② 한 줄 선언 -->
+<section class="sc decl" id="about" data-chap="N° 02 — WHAT IT IS" style="--h:175vh">
+  <div class="stage">
+    <div class="txt">
+      <h2 class="statement"><span class="ln"><span style="--d:.15s" data-i18n="p.decl1">폴더 체계와 규칙,</span></span><span class="ln"><span style="--d:.24s" data-i18n="p.decl2">에이전트를 <strong>한 상자</strong>에.</span></span><span class="ln"><span style="--d:.33s" data-i18n="p.decl3"><strong>zip 하나</strong>로 설치.</span></span></h2>
+      <p class="sub2 fade" style="--d:.6s" data-i18n="p.declsub">일이 놓일 자리, 일하는 방식을 적은 규칙, 실제로 일하는 손. 셋이 C:\IRIS 한 폴더에 함께 들어갑니다.</p>
+    </div>
+  </div>
+</section>
+
+<div id="how">
+<!-- ③ 폴더 체계 -->
+<section class="sc tree" data-chap="N° 03 — FOLDERS" style="--h:195vh">
+  <div class="stage">
+    <div class="tags" id="tags3" aria-hidden="true">
+      <span class="tag mono fade" style="--d:.2s">ROLE</span>
+      <span class="tag mono fade" style="--d:.5s">DOMAIN</span>
+      <span class="tag mono fade" style="--d:.8s">PROJECT</span>
+    </div>
+    <div class="txt">
+      <h2><span class="ln"><span style="--d:.1s" data-i18n="what.1h">폴더 체계</span></span></h2>
+      <p class="fade" style="--d:.35s" data-i18n="p.f1">역할 → 분야 → 프로젝트 순서로 자리를 잡습니다. <b>비서는 지금 어느 자리에서 일하는지 폴더로 압니다.</b></p>
+    </div>
+  </div>
+</section>
+
+<!-- ④ 규칙 파일 -->
+<section class="sc rules" data-chap="N° 04 — RULES" style="--h:195vh">
+  <div class="stage">
+    <div class="txt">
+      <h2><span class="ln"><span style="--d:.1s" data-i18n="what.2h">규칙 파일</span></span></h2>
+      <p class="fade" style="--d:.35s" data-i18n="p.f2">폴더마다 AGENTS.md 하나가 그 자리의 규칙입니다. <b>위 폴더의 규칙은 아래로 자동으로 이어집니다.</b></p>
+    </div>
+  </div>
+</section>
+
+<!-- ⑤ 에이전트와 창 -->
+<section class="sc agents" data-chap="N° 05 — AGENTS" style="--h:205vh">
+  <div class="stage">
+    <div class="tags" id="tags5" aria-hidden="true">
+      <span class="tag mono v fade" style="--d:.4s">CLAUDE CODE</span>
+      <span class="tag mono fade" style="--d:.55s">CODEX</span>
+      <span class="tag mono fade" style="--d:.7s">ONE WINDOW</span>
+    </div>
+    <div class="txt">
+      <h2><span class="ln"><span style="--d:.1s" data-i18n="what.3h">에이전트와 창</span></span></h2>
+      <p class="fade" style="--d:.35s" data-i18n="p.f3">Claude Code와 Codex가 실제 손입니다. <b>IRIS 창은 그 세션 여러 개를 한 화면에서 지휘합니다.</b></p>
+    </div>
+  </div>
+</section>
+</div>
+
+<!-- ⑥ 기능 몰아치기 -->
+<section class="sc feats" id="features" data-chap="N° 06 — INSIDE THE BOX" style="--h:430vh">
+  <div class="stage">
+    <h2 class="vh" data-i18n="feat.h">기능</h2>
+    <ul class="feat-list" id="featList">
+      <li data-i18n="p.ft1">세션 여러 개, 한 창</li>
+      <li data-i18n="p.ft2">첫 실행 튜토리얼</li>
+      <li data-i18n="p.ft3">온톨로지 — 내 폴더 지도</li>
+      <li data-i18n="p.ft4">도구 설치는 버튼 하나</li>
+      <li data-i18n="p.ft5">모델 이름 = 실제 모델</li>
+      <li data-i18n="p.ft6">한글 · 엑셀 · PDF 도구 동봉</li>
+      <li data-i18n="p.ft7">지울 때는 폴더 하나 지우면 끝</li>
+    </ul>
+    <div class="cut" aria-hidden="true">
+      <div class="ticks" id="ticks6"><b></b><b></b><b></b><b></b><b></b><b></b><b></b></div>
+      <div class="count"><span id="n6">01</span> <i>/ 07</i></div>
+      <div class="cap mono" id="cap6">MANY SESSIONS — ONE WINDOW</div>
+    </div>
+  </div>
+</section>
+
+<!-- ⑦ 시작 3단계 -->
+<section class="sc steps" id="install" data-chap="N° 07 — THREE STEPS" style="--h:310vh">
+  <div class="stage">
+    <div class="txt">
+      <h2 class="vh" data-i18n="dl.stepsh">설치 3단계</h2>
+      <ol class="step-list" id="stepList">
+        <li><span class="mono">STEP 01</span><b data-i18n="p.s1b">zip 내려받기</b><span class="sx" data-i18n="p.s1s">파일 하나를 받습니다.</span></li>
+        <li><span class="mono">STEP 02</span><b data-i18n="p.s2b">두 번 클릭</b><span class="sx" data-i18n="p.s2s">압축을 풀고 <code>IRIS-설치.cmd</code> 를 더블클릭합니다.</span></li>
+        <li><span class="mono">STEP 03</span><b data-i18n="p.s3b">로그인 하나</b><span class="sx" data-i18n="p.s3s">Claude 또는 ChatGPT 구독 계정으로 로그인하면 끝.</span></li>
+      </ol>
+      <div class="ticks" id="ticks7" aria-hidden="true"><b></b><b></b><b></b></div>
+      <p class="help fade" style="--d:.5s" data-i18n="p.help">파란 경고 창(PC 보호)이나 “스마트 앱 컨트롤이 차단했습니다”가 나오면 → <a href="/install#blocked">설치 안내의 「윈도우가 막을 때」</a></p>
+    </div>
+  </div>
+</section>
+
+<!-- ⑧ 내려받기 -->
+<section class="sc dl8" id="download" data-chap="N° 08 — DOWNLOAD">
+  <div class="dl-in">
+    <div class="label mono fade" style="--d:.6s">DOWNLOAD — FREE — MIT</div>
+    <div class="dl-space" aria-hidden="true"></div>
+    <h2 class="fin"><span class="ln"><span style="--d:.9s" data-i18n="p.fin">해결은 에이전트가, <em>정의는 우리가.</em></span></span></h2>
+    <div class="dl-cards fade" style="--d:1.05s">
+      <!-- 안정판(채운 단추, 권장) -->
+      <div class="card stable">
+        <span class="tag2 mono" data-i18n="dl.stable">안정판 · 권장</span>
+        <a class="btn big" id="dl-btn" href="https://iris-workspace-dl.pages.dev/IRIS-Setup_v2.0.55_2026-11-09.zip"><span data-i18n="dl.btn">IRIS 내려받기</span><span class="o" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2v11M3.5 8.5 8 13l4.5-4.5"/></svg></span></a>
+        <p class="meta"><span id="dl-ver">v2.0.55</span><i>/</i><span id="dl-size">556.0 MB</span><i>/</i><span id="dl-date">2026-11-09</span></p>
+        <details>
+          <summary data-i18n="p.more">자세한 정보</summary>
+          <div class="det">
+            <p><span data-i18n="dl.bytes">정확한 크기</span> <span class="sha" id="dl-bytes">556,005,697 bytes</span></p>
+            <p>SHA-256 <code class="sha" id="dl-sha">e8f9e229955360dede07e416b2cfddb852993a5f1cf7fd2b7b06ec024034a831</code></p>
+            <p data-i18n="p.hashnote">받은 파일이 원본과 같은지 보려면 PowerShell 에서 아래 명령의 결과를 위 값과 비교하세요.</p>
+            <pre><code id="dl-hashcmd">Get-FileHash .\IRIS-Setup_v2.0.55_2026-11-09.zip -Algorithm SHA256</code></pre>
+            <p id="dl-via-mirror" hidden><span data-i18n="dl.via">내려받기 단추는 Cloudflare 서버에서 받습니다.</span> <a id="dl-github" href="https://github.com/Feynman520/d09-p03-iris-installer/releases/latest" rel="noopener" data-i18n="dl.github">GitHub에서 직접 내려받기</a></p>
+            <p id="dl-via-github"><span data-i18n="dl.viagh">내려받기 단추는 GitHub 릴리스 첨부에서 받습니다.</span></p>
+            <p><a id="dl-relpage" href="https://github.com/Feynman520/d09-p03-iris-installer/releases/tag/iris-installer--v2.0.55" rel="noopener" data-i18n="dl.relpage">이 판의 릴리스 노트</a> · <a href="https://github.com/Feynman520/d09-p03-iris-installer/releases" rel="noopener" data-i18n="dl.all">모든 판 보기</a></p>
+          </div>
+        </details>
+      </div>
+      <!-- 최신판(테두리 단추, 시험 중): site.js CONFIG.preview.installer 가 안정판보다 높을 때만 보인다 -->
+      <div class="card pre" id="dl-pre" hidden>
+        <span class="tag2 mono v" data-i18n="dl.pretag">최신판 · 시험 중</span>
+        <a class="btn big ghost" id="dl-pre-btn" href="https://github.com/Feynman520/d09-p03-iris-installer/releases"><span data-i18n="dl.prebtn">최신판 내려받기</span><span class="o" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2v11M3.5 8.5 8 13l4.5-4.5"/></svg></span></a>
+        <p class="meta"><span id="dl-pre-ver"></span><i>/</i><span id="dl-pre-size"></span><i>/</i><span id="dl-pre-date"></span></p>
+        <details>
+          <summary data-i18n="p.more">자세한 정보</summary>
+          <div class="det">
+            <p data-i18n="dl.prenote">새 기능을 먼저 써 보는 판입니다. IRIS 안의 「업데이트」로는 오지 않고, 시험을 마치면 안정판으로 올라갑니다. 문제가 생기면 IRIS를 삭제(「내 작업 보관」)한 뒤 안정판을 새로 설치하세요.</p>
+            <p><span data-i18n="dl.bytes">정확한 크기</span> <span class="sha" id="dl-pre-bytes"></span></p>
+            <p>SHA-256 <code class="sha" id="dl-pre-sha"></code></p>
+            <p><a id="dl-pre-relpage" href="https://github.com/Feynman520/d09-p03-iris-installer/releases" rel="noopener" data-i18n="dl.relpage">이 판의 릴리스 노트</a></p>
+          </div>
+        </details>
+      </div>
+    </div>
+    <p class="req fade" style="--d:1.2s" data-i18n="p.req">윈도우 10 / 11 64비트 · C 드라이브 여유 3 GB · Claude 또는 ChatGPT 유료 구독 · <a href="/install">설치 안내</a></p>
+  </div>
+</section>
+</main>
+
+<footer class="foot">
+  <div class="foot-motto" data-i18n="hero.motto">해결은 에이전트가, 정의는 우리가.</div>
+  <nav class="foot-links" aria-label="바닥글">
+    <a href="/install" data-i18n="nav.install">설치 안내</a>
+    <a href="/privacy" data-i18n="p.privacy">개인정보 처리방침</a>
+    <a href="https://github.com/Feynman520" rel="noopener">GitHub</a>
+  </nav>
+  <div class="foot-meta mono"><span>SEJUN HAM <span class="kn">(함세준)</span></span><span>MIT</span><span id="foot-ver">v2.0.55</span></div>
+</footer>
+<div class="ring" id="ring" aria-hidden="true"></div>
+
+<script src="vendor/three.iife.js"></script>
+<script src="particles.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

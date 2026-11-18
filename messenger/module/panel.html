@@ -1,0 +1,257 @@
+<!-- IRIS Messenger · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home -->
+<!doctype html>
+<html lang="ko" data-mode="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IRIS Messenger</title>
+<!-- 뼈대(이 파일) + 스타일(panel.css) + 동작(panel.js) 세 파일을 모듈 프로세스가 한 장으로 합쳐 내준다(panel.mjs).
+     화면은 바깥 자원을 하나도 불러오지 않는다. -->
+<style>
+<!--@css-->
+</style>
+</head>
+<body>
+
+<!-- 그림 글자(아이콘)는 전부 이 안에 두고 <use>로 꺼내 쓴다 — 바깥 파일 0 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-mark" viewBox="0 0 24 24"><g class="a1"><path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9Z" fill="none" stroke="var(--accent)" stroke-width="1.3"/><path d="M12 3v9m0 0l7.8 4.5M12 12l-7.8 4.5" stroke="currentColor" stroke-width="1" opacity=".55"/></g></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M10.3 3h3.4l.5 2.3a7.4 7.4 0 0 1 1.9 1.1l2.2-.8 1.7 3-1.8 1.5a7.6 7.6 0 0 1 0 2.2l1.8 1.5-1.7 3-2.2-.8a7.4 7.4 0 0 1-1.9 1.1L13.7 21h-3.4l-.5-2.3a7.4 7.4 0 0 1-1.9-1.1l-2.2.8-1.7-3 1.8-1.5a7.6 7.6 0 0 1 0-2.2L4 10.6l1.7-3 2.2.8a7.4 7.4 0 0 1 1.9-1.1z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.8" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12L20 4l-4 16-4.5-6.5L4 12z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M11.5 13.5L20 4" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="18" cy="12" r="1.6" fill="currentColor"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 3v5h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M4 8a2 2 0 0 0 0 4 2 2 0 0 0 0 4h16a2 2 0 0 0 0-4 2 2 0 0 0 0-4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 8v8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2 2"/></symbol>
+  <symbol id="i-in" viewBox="0 0 24 24"><path d="M10 7V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M3 12h11m-3-3 3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-block" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 6l12 12" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="14" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l8-8m-3 3 2.5 2.5M16 6l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+</svg>
+
+<!-- ① 서버 주소가 없다 -->
+<main id="stage-nohub" class="gate" hidden>
+  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">Messenger</span></p>
+  <div class="card">
+    <h1>서버 주소</h1>
+    <p class="lead">메신저는 여러분이 정한 Supabase 주소로만 오갑니다. 주소와 anon key는 이 PC에만 저장됩니다.</p>
+    <label class="field"><span>서버 주소</span><input id="nohub-url" type="text" inputmode="url" placeholder="https://xxxx.supabase.co" autocomplete="off"></label>
+    <label class="field"><span>anon key</span><input id="nohub-key" type="text" placeholder="eyJhbGciOi…" autocomplete="off"></label>
+    <button id="nohub-save" class="btn primary wide" type="button">저장하고 시작</button>
+    <p class="err" id="nohub-err" role="alert"></p>
+  </div>
+  <p class="foot">anon key는 공개해도 되는 값입니다. service role key는 절대 넣지 마세요.</p>
+</main>
+
+<!-- ② 로그인 전: 메일 주소 -->
+<main id="stage-out" class="gate" hidden>
+  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">Messenger</span></p>
+  <div class="card">
+    <h1>시작하기</h1>
+    <p class="lead">메일 주소를 적으면 인증번호 6자리를 보내 드립니다. 이 PC에서는 한 번만 하면 됩니다.</p>
+    <label class="field" for="out-email"><span>메일 주소</span></label>
+    <input id="out-email" type="email" inputmode="email" placeholder="me@example.com" autocomplete="email">
+    <label class="check" style="margin-top:16px">
+      <input id="out-agree" type="checkbox">
+      <span>만 14세 이상이며 처리방침을 읽었습니다</span>
+    </label>
+    <button id="out-send" class="btn primary wide" type="button" disabled>인증번호 받기</button>
+    <p class="err" id="out-err" role="alert"></p>
+  </div>
+  <p class="foot"><a id="link-privacy" href="/privacy" target="_blank" rel="noopener">처리방침 읽기</a></p>
+</main>
+
+<!-- ③ 인증번호 -->
+<main id="stage-code" class="gate" hidden>
+  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">Messenger</span></p>
+  <div class="card">
+    <h1>인증번호 입력</h1>
+    <p class="lead"><span id="code-email"></span> 으로 보냈습니다. 메일에 적힌 6자리 숫자를 넣어 주세요.</p>
+    <input id="code-input" class="otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="" autocomplete="one-time-code" spellcheck="false" aria-label="인증번호 6자리">
+    <details class="more" id="code-more">
+      <summary>메일에 숫자가 없고 「Confirm email address」 같은 단추만 있나요?</summary>
+      <div class="inner">
+        <p class="hint" style="margin:0 0 8px">그 단추(링크)를 <strong>누르지 말고</strong>, 단추 위에서 마우스 오른쪽 → <strong>링크 주소 복사</strong> → 아래 칸에 붙여 넣고 확인을 누르세요. 이 메신저가 대신 확인합니다.</p>
+        <input id="code-link" type="text" placeholder="…supabase.co/auth/v1/verify?token=…" spellcheck="false" autocomplete="off" aria-label="링크 주소">
+      </div>
+    </details>
+    <button id="code-go" class="btn primary wide" type="button" style="margin-top:16px">확인</button>
+    <div class="row">
+      <button id="code-again" class="link" type="button">다시 받기</button>
+      <button id="code-back" class="link" type="button">메일 주소 바꾸기</button>
+    </div>
+    <p class="err" id="code-err" role="alert"></p>
+  </div>
+  <p class="foot">인증번호는 10분 동안만 쓸 수 있습니다. 5번 넘게 틀리면 잠시 잠깁니다. 그때는 다시 받아 주세요.</p>
+</main>
+
+<!-- ④ 이름·열쇠(신원) -->
+<main id="stage-identity" class="gate" hidden>
+  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">Messenger</span></p>
+  <div class="card">
+    <div id="idn-mismatch" class="notice bad" hidden>
+      <p><strong>이 PC의 열쇠가 계정의 열쇠와 다릅니다.</strong> 다른 PC에서 쓰던 계정이면 그때 적어 둔 복구 단어 12개로 복원하세요. 복구 단어가 없으면 열쇠를 재설정할 수 있지만 예전에 받은 글은 다시 열 수 없고, 친구마다 내 새 고유번호를 다시 확인해야 합니다.</p>
+      <div class="acts">
+        <button id="idn-mm-restore" class="btn sm" type="button">복구 단어로 복원</button>
+        <button id="idn-mm-reset" class="btn sm danger" type="button">열쇠 재설정</button>
+      </div>
+    </div>
+    <div id="idn-missing" class="notice" hidden>
+      <p>서버에 프로필이 없습니다. 이 PC의 열쇠를 등록하거나 복구 단어로 복원하세요.</p>
+    </div>
+    <div id="idn-normal">
+      <h1>상대에게 보일 이름</h1>
+      <p class="lead">글은 이 PC의 열쇠로만 열립니다. 열쇠는 복구 단어 12개로 백업합니다.</p>
+    </div>
+    <label class="field" for="idn-name"><span>이름</span></label>
+    <input id="idn-name" type="text" placeholder="홍길동" autocomplete="off" maxlength="40">
+    <div id="idn-words-wrap" hidden style="margin-top:14px">
+      <label class="field" for="idn-words"><span>복구 단어 12개(띄어쓰기로 구분)</span></label>
+      <textarea id="idn-words" rows="3" spellcheck="false" placeholder="able absent …"></textarea>
+    </div>
+    <div style="margin-top:18px;display:flex;flex-direction:column;gap:8px">
+      <button id="idn-register" class="btn primary wide" type="button" hidden>이 PC의 열쇠로 등록</button>
+      <button id="idn-create" class="btn primary wide" type="button">시작</button>
+      <button id="idn-restore" class="link" type="button" style="align-self:center">복구 단어로 복원</button>
+    </div>
+    <p class="err" id="idn-err" role="alert"></p>
+  </div>
+</main>
+
+<!-- ⑤ 본 화면 -->
+<main id="stage-in" hidden>
+  <aside class="rail">
+    <!-- 왼쪽 줄에 제목을 두지 않는다(v0.3.2): Face 서랍 머리가 이미 "IRIS Messenger"를 쓴다. -->
+    <div class="rail-title"><span>친구목록</span></div>
+    <ul id="contacts"></ul>
+    <div class="rail-add menu-wrap">
+      <button id="btn-plus" class="add" type="button" aria-haspopup="true" aria-expanded="false"><svg><use href="#i-plus"/></svg>친구 추가</button>
+      <div id="menu-plus" class="menu up" role="menu" hidden>
+        <button id="btn-invite" type="button" role="menuitem"><svg><use href="#i-ticket"/></svg>초대 코드 만들기</button>
+        <button id="btn-accept" type="button" role="menuitem"><svg><use href="#i-in"/></svg>초대 코드 입력</button>
+      </div>
+    </div>
+    <div class="me">
+      <span id="me-avatar" class="avatar" aria-hidden="true">나</span>
+      <div class="txt">
+        <span class="name" id="me-name">나</span>
+      </div>
+      <span class="conn" title="서버 연결 상태"><span class="dot" id="conn-dot"></span><span id="conn-text">대기</span></span>
+      <button id="btn-settings" class="ic" type="button" title="설정"><svg><use href="#i-gear"/></svg></button>
+    </div>
+  </aside>
+  <section class="talk">
+    <p class="banner" id="hub-banner" hidden></p>
+    <header id="peerbar"></header>
+    <div id="chat"></div>
+    <form id="composer" autocomplete="off">
+      <!-- 첨부 띠(v0.4.0): 파일을 고르면 여기 붙고, Enter/보내기를 눌러야 나간다. -->
+      <div id="attach" class="attach" hidden>
+        <span class="fic" aria-hidden="true"><svg><use href="#i-file"/></svg></span>
+        <span class="atxt"><span class="aname" id="attach-name"></span><span class="asize" id="attach-size"></span></span>
+        <button id="attach-x" class="x" type="button" title="첨부 취소" aria-label="remove attachment">✕</button>
+      </div>
+      <div class="box">
+        <button id="btn-file" class="ic" type="button" title="파일 보내기"><svg><use href="#i-clip"/></svg></button>
+        <textarea id="msg" rows="1" placeholder="글을 쓰고 Enter로 보냅니다" aria-label="message text"></textarea>
+        <button id="btn-send" class="ic accent" type="submit" title="보내기 (Enter)"><svg><use href="#i-send"/></svg></button>
+      </div>
+      <div class="bar">
+        <span class="why" id="composer-why"></span>
+        <p class="err" id="sendmsg" role="alert"></p>
+        <span class="count" id="count" hidden>0 / 4000</span>
+      </div>
+      <input id="file-input" type="file" hidden aria-label="attach file">
+    </form>
+
+    <!-- 설정: 대화 영역을 덮는 한 장(팝업 아님) -->
+    <div id="settings-page" class="page" hidden>
+      <header class="page-head"><button id="set-back" class="ic" type="button" title="뒤로"><svg><use href="#i-back"/></svg></button><h2>설정</h2></header>
+      <div class="page-body">
+        <section class="profile">
+          <div class="menu-wrap">
+            <button id="set-avatar" class="avatar big" type="button" title="사진 바꾸기" aria-haspopup="true" aria-expanded="false">
+              <img id="set-avatar-img" alt="" hidden><span id="set-avatar-ini">나</span><span class="cam" aria-hidden="true"><svg><use href="#i-cam"/></svg></span>
+            </button>
+            <div id="menu-avatar" class="menu left" role="menu" hidden>
+              <button id="set-avatar-pick" type="button" role="menuitem"><svg><use href="#i-cam"/></svg>사진 고르기</button>
+              <button id="set-avatar-remove" type="button" role="menuitem" class="danger"><svg><use href="#i-trash"/></svg>사진 지우기</button>
+            </div>
+            <input id="avatar-input" type="file" accept="image/*" hidden aria-label="profile photo">
+          </div>
+          <div class="ptxt">
+            <div class="pname"><input id="set-name" type="text" placeholder="홍길동" autocomplete="off" maxlength="40" aria-label="상대에게 보일 이름"><button id="set-rename" class="ic accent" type="button" title="이름 저장" hidden><svg><use href="#i-check"/></svg></button></div>
+            <div class="pmail" id="set-email">—</div>
+            <div class="pfp">고유번호 <span id="set-fp" class="fp">—</span></div>
+          </div>
+        </section>
+        <section class="rows">
+          <label class="row3"><span class="t">새 글 알림<small>끄면 Face 알림 없이 배지 숫자만 늘어납니다</small></span><input id="set-mute" class="sw" type="checkbox"></label>
+          <div class="row3"><span class="t">복구 단어<small>12개. PC를 바꿀 때 열쇠를 되살립니다. 보려면 확인을 거칩니다</small></span><button id="set-words" class="btn sm" type="button">다시 보기</button></div>
+        </section>
+        <p class="err" id="set-err" role="alert"></p>
+        <footer class="page-foot">
+          <span class="ver">IRIS Messenger <span id="set-version">—</span></span>
+          <span class="dangerzone">
+            <button id="set-logout" class="link" type="button">로그아웃</button>
+            <button id="set-reset" class="link red" type="button">열쇠 재설정</button>
+            <button id="set-delete" class="link red" type="button">탈퇴</button>
+          </span>
+        </footer>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 대화상자 4 -->
+<dialog id="words-dialog" aria-labelledby="words-title">
+  <div class="head"><h2 id="words-title">복구 단어 12개</h2><button class="x" type="button" data-close aria-label="close">✕</button></div>
+  <div class="body">
+    <p>이 12개 단어가 열쇠 그 자체입니다. PC를 바꾸거나 포맷하면 이 단어들로만 되살릴 수 있습니다. 종이에 순서대로 적어 안전한 곳에 두세요. 복사 단추는 일부러 두지 않았습니다.</p>
+    <ol id="words-grid"></ol>
+    <label class="check"><input id="words-ok" type="checkbox"><span>적어 두었습니다</span></label>
+  </div>
+  <div class="foot"><button id="words-go" class="btn primary" type="button" disabled>계속</button></div>
+</dialog>
+
+<dialog id="invite-dialog" aria-labelledby="invite-title">
+  <div class="head"><h2 id="invite-title">초대 코드</h2><button class="x" type="button" data-close aria-label="close">✕</button></div>
+  <div class="body">
+    <code id="invite-code"></code>
+    <p>이 코드를 상대에게 직접(카톡·말) 전하세요. 뒤 4자는 내 고유번호의 일부입니다.</p>
+    <p class="hint" style="margin:0">7일 동안 한 번만 쓸 수 있습니다. 상대가 넣으면 내 친구목록에 요청이 뜹니다.</p>
+  </div>
+</dialog>
+
+<dialog id="accept-dialog" aria-labelledby="accept-title">
+  <div class="head"><h2 id="accept-title">초대 코드 입력</h2><button class="x" type="button" data-close aria-label="close">✕</button></div>
+  <div class="body">
+    <p>상대에게 받은 코드를 그대로 넣으세요.</p>
+    <input id="accept-input" type="text" class="fp" placeholder="IRIS-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" spellcheck="false" autocomplete="off">
+    <p class="hint">코드의 뒤 4자와 상대의 고유번호가 맞는지 확인합니다.</p>
+    <p class="err" id="accept-err" role="alert"></p>
+  </div>
+  <div class="foot">
+    <button class="btn" type="button" data-close>그만두기</button>
+    <button id="accept-go" class="btn primary" type="button">보내기</button>
+  </div>
+</dialog>
+
+<dialog id="confirm-dialog" aria-labelledby="confirm-title">
+  <div class="head"><h2 id="confirm-title">확인</h2><button class="x" type="button" data-close aria-label="close">✕</button></div>
+  <div class="body"><p id="confirm-text" style="margin:0;color:var(--fg)"></p></div>
+  <div class="foot">
+    <button id="confirm-no" class="btn" type="button">그만두기</button>
+    <button id="confirm-yes" class="btn primary" type="button">계속</button>
+  </div>
+</dialog>
+
+<script>
+<!--@js-->
+</script>
+</body>
+</html>

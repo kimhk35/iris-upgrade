@@ -1,0 +1,12 @@
+node_modules/
+state/
+dist/
+.env
+.env.local
+.vercel
+docs/구현계획*
+docs/로드맵.md
+.superpowers/
+module/lib/
+*.zip
+docs/제작기록*

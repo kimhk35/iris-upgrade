@@ -1,0 +1,816 @@
+import { test, after } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { EventEmitter } from 'node:events';
+import {
+  applyPlan as rawApplyPlan, waitForDaemonStop, revertFaceItem, prunePrevious, defaultHealthCheck, parseArgs, insideDownloads,
+  preserveAside as updaterPreserveAside, carryOver as updaterCarryOver,
+  updateResultPath, updateLogPath, receiptPath, toolsDir,
+  defaultNpmInstall, normalizeLockText,
+} from '../updater/apply.mjs';
+import {
+  preserveAside as installerPreserveAside, carryOver as installerCarryOver,
+} from '../installer/lib/install.mjs';
+import { faceDirFor } from '../updater/apply.mjs';
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-updater-'));
+
+// P18 (2026-11-18): applyPlan now checks the relaunched window's /api/health. Every older test relaunches
+// with a FAKE spawn, so it gets a fake 'healthy' answer by default -- no test may knock on this PC's real
+// IRIS window (port 3458, R-039). The health tests below pass their own healthFn.
+const applyPlan = (opts) => rawApplyPlan({ healthFn: async () => ({ ok: true, waitedMs: 0 }), ...opts });
+after(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
+
+// --------------------------------------------------------------------------
+// fixture: a fake soul root -- never a real drive letter, never this PC's
+// C:\IRIS (repo-wide constraint: test fixtures use a made-up soul like ALPHA).
+// --------------------------------------------------------------------------
+function makeSoul(name, { faceVersion = '2.57.1', lock = '{"lockfileVersion":3,"old":true}', schema = 1 } = {}) {
+  const root = path.join(tmp, name, 'ALPHA');
+  const tools = path.join(root, '_agent', 'shared', 'tools');
+  const face = path.join(tools, 'face');
+  fs.mkdirSync(path.join(face, 'state'), { recursive: true });
+  fs.mkdirSync(path.join(face, 'modules', 'messenger'), { recursive: true });
+  fs.mkdirSync(path.join(face, 'node_modules', 'node-pty'), { recursive: true });
+  fs.mkdirSync(path.join(face, 'daemon'), { recursive: true });
+  fs.mkdirSync(path.join(tools, 'node'), { recursive: true });
+
+  fs.writeFileSync(path.join(face, 'package.json'), JSON.stringify({ name: 'iris-face', version: faceVersion }), 'utf8');
+  fs.writeFileSync(path.join(face, 'package-lock.json'), lock, 'utf8');
+  fs.writeFileSync(path.join(face, 'daemon', 'server.mjs'), 'old daemon', 'utf8');
+  fs.writeFileSync(path.join(face, 'state', 'sessions.json'), '{"mine":true}', 'utf8');
+  fs.writeFileSync(path.join(face, 'modules', 'messenger', 'module.json'), '{"name":"messenger"}', 'utf8');
+  fs.writeFileSync(path.join(face, 'node_modules', 'node-pty', 'pty.node'), 'old binary', 'utf8');
+
+  const receipt = {
+    schema,
+    package: { name: 'IRIS', version: '1.2.0', guideVersion: '10', license: 'MIT' },
+    soul: { root, name: 'ALPHA', createdBy: 'package-installer' },
+    installed: { face: { version: faceVersion, path: '_agent\\shared\\tools\\face', sha256: 'old', verified: true } },
+    steps: { copy: 'done', login: 'done', handoff: 'done' },
+  };
+  fs.mkdirSync(path.dirname(receiptPath(root)), { recursive: true });
+  fs.writeFileSync(receiptPath(root), JSON.stringify(receipt, null, 2), 'utf8');
+  return { root, tools, face };
+}
+
+// The downloaded + verified new Face, already unpacked by the daemon into
+// <downloads>\update-<stamp>\face (P02 설계 3절 5).
+function makeNewFace(root, { version = '2.58.0', lock = '{"lockfileVersion":3,"old":true}' } = {}) {
+  const dir = path.join(root, '_agent', 'shared', 'downloads', 'update-20260914-000000', 'face');
+  fs.mkdirSync(path.join(dir, 'daemon'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'iris-face', version }), 'utf8');
+  fs.writeFileSync(path.join(dir, 'package-lock.json'), lock, 'utf8');
+  fs.writeFileSync(path.join(dir, 'daemon', 'server.mjs'), 'new daemon', 'utf8');
+  return dir;
+}
+
+// No pid, no port, no waiting: every test but the timeout one wants the swap,
+// not a 90-second nap.
+const NO_WAIT = { pid: null, port: null };
+
+function fakeSpawn(calls) {
+  return (exe, args, opts) => {
+    calls.push({ exe, args, opts });
+    return { pid: 4242, unref() {} };
+  };
+}
+
+// --------------------------------------------------------------------------
+
+test('updater: face swap keeps state/modules, rotates .prev, reuses node_modules, updates receipt and writes the result file', async () => {
+  const { root, face } = makeSoul('case-swap');
+  const dir = makeNewFace(root);
+  const npmCalls = [];
+
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: false },
+    npmInstall: async (a) => { npmCalls.push(a); return { code: 0, out: '', err: '' }; },
+  });
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.items, [{ kind: 'face', version: '2.58.0', ok: true, reason: undefined }]);
+
+  // the new code is in place
+  assert.equal(JSON.parse(fs.readFileSync(path.join(face, 'package.json'), 'utf8')).version, '2.58.0');
+  assert.equal(fs.readFileSync(path.join(face, 'daemon', 'server.mjs'), 'utf8'), 'new daemon');
+
+  // the user's own folders travelled with it
+  assert.equal(fs.readFileSync(path.join(face, 'state', 'sessions.json'), 'utf8'), '{"mine":true}');
+  assert.equal(fs.readFileSync(path.join(face, 'modules', 'messenger', 'module.json'), 'utf8'), '{"name":"messenger"}');
+
+  // identical package-lock.json -> node_modules moved over, npm never run
+  assert.equal(npmCalls.length, 0, 'npm must not run when package-lock.json is unchanged');
+  assert.equal(fs.readFileSync(path.join(face, 'node_modules', 'node-pty', 'pty.node'), 'utf8'), 'old binary');
+
+  // the old copy is still there, under .prev, and nothing was deleted
+  const prev = `${face}.prev`;
+  assert.ok(fs.existsSync(prev), '.prev must exist');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(prev, 'package.json'), 'utf8')).version, '2.57.1');
+  assert.equal(fs.existsSync(path.join(prev, 'node_modules')), false, 'node_modules was moved, not copied');
+
+  // the download folder is cleaned up once there is nothing left to roll back to
+  assert.equal(fs.existsSync(dir), false);
+
+  // receipt
+  const receipt = JSON.parse(fs.readFileSync(receiptPath(root), 'utf8'));
+  assert.equal(receipt.installed.face.version, '2.58.0');
+  assert.equal(receipt.installed.face.previous, '_agent\\shared\\tools\\face.prev');
+  assert.equal(receipt.installed.face.updatedBy, 'updater');
+  assert.equal(typeof receipt.installed.face.at, 'string');
+  assert.equal(receipt.package.version, '1.2.0', 'the updater must not touch the package version');
+
+  // result file + log
+  const written = JSON.parse(fs.readFileSync(updateResultPath(root), 'utf8'));
+  assert.equal(written.ok, true);
+  assert.equal(written.items[0].kind, 'face');
+  assert.equal(typeof written.at, 'string');
+  assert.match(fs.readFileSync(updateLogPath(root), 'utf8'), /apply start/);
+});
+
+test('updater: .prev-2 on a second update (no earlier copy is ever clobbered)', async () => {
+  const { root, face } = makeSoul('case-prev2');
+  fs.mkdirSync(`${face}.prev`, { recursive: true });
+  fs.writeFileSync(path.join(`${face}.prev`, 'marker.txt'), 'first backup', 'utf8');
+
+  const dir = makeNewFace(root);
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: false },
+    npmInstall: async () => ({ code: 0 }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(fs.readFileSync(path.join(`${face}.prev`, 'marker.txt'), 'utf8'), 'first backup');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(`${face}.prev-2`, 'package.json'), 'utf8')).version, '2.57.1');
+});
+
+test('updater: a changed package-lock.json runs the bundled npm ci', async () => {
+  const { root, face } = makeSoul('case-npm');
+  const dir = makeNewFace(root, { lock: '{"lockfileVersion":3,"new":true}' });
+  const npmCalls = [];
+
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: false },
+    npmInstall: async (a) => {
+      npmCalls.push(a);
+      fs.mkdirSync(path.join(a.cwd, 'node_modules'), { recursive: true });
+      return { code: 0 };
+    },
+  });
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(npmCalls.length, 1);
+  assert.equal(npmCalls[0].npmCmd, path.join(toolsDir(root), 'node', 'npm.cmd'));
+  assert.equal(npmCalls[0].cwd, face);
+  assert.equal(npmCalls[0].nodeDir, path.join(toolsDir(root), 'node'));
+  // the previous node_modules stays under .prev -- nothing is deleted
+  assert.ok(fs.existsSync(path.join(`${face}.prev`, 'node_modules', 'node-pty', 'pty.node')));
+});
+
+// The bug this pins: Face lists `electron` under devDependencies, but the
+// collector that stages Face for the zip (build/collect.mjs `npmCi`) runs a
+// plain `npm ci`. `--omit=dev` here would install a Face with no Electron --
+// no window could ever open -- found in a live end-to-end test (2026-09-14).
+test('updater: the actual npm command line has no --omit=dev', async () => {
+  const calls = [];
+  const fakeSpawnFn = (exe, args, opts) => {
+    calls.push({ exe, args, opts });
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    process.nextTick(() => child.emit('close', 0));
+    return child;
+  };
+
+  const result = await defaultNpmInstall({
+    npmCmd: 'C:\\fake\\node\\npm.cmd', cwd: 'C:\\fake\\cwd', nodeDir: 'C:\\fake\\node', spawnFn: fakeSpawnFn,
+  });
+
+  assert.equal(result.code, 0);
+  assert.equal(calls.length, 1);
+  const line = calls[0].args.at(-1);
+  assert.match(line, /\bnpm\.cmd"\s+ci"$/, `expected a bare "ci", got: ${line}`);
+  assert.ok(!line.includes('--omit=dev'), `npm args must not contain --omit=dev: ${line}`);
+});
+
+test('normalizeLockText: CRLF/LF and trailing whitespace do not count as a change', () => {
+  const lf = '{\n  "lockfileVersion": 3,\n  "same": true\n}\n';
+  const crlf = lf.replace(/\n/g, '\r\n');
+  const trailingSpace = lf.replace('"same": true', '"same": true   ');
+  assert.equal(normalizeLockText(lf), normalizeLockText(crlf));
+  assert.equal(normalizeLockText(lf), normalizeLockText(trailingSpace));
+  assert.notEqual(normalizeLockText(lf), normalizeLockText(lf.replace('true', 'false')));
+});
+
+test('updater: a package-lock.json that differs only by CRLF vs LF reuses node_modules', async () => {
+  const lockLF = '{\n  "lockfileVersion": 3,\n  "same": true\n}\n';
+  const lockCRLF = lockLF.replace(/\n/g, '\r\n');
+  const { root, face } = makeSoul('case-crlf', { lock: lockLF });
+  const dir = makeNewFace(root, { lock: lockCRLF });
+  const npmCalls = [];
+
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: false },
+    npmInstall: async (a) => { npmCalls.push(a); return { code: 0 }; },
+  });
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(npmCalls.length, 0, 'npm must not run when the lock differs only by line endings');
+  assert.equal(fs.readFileSync(path.join(face, 'node_modules', 'node-pty', 'pty.node'), 'utf8'), 'old binary');
+  assert.equal(fs.existsSync(path.join(`${face}.prev`, 'node_modules')), false, 'node_modules was moved, not copied');
+});
+
+test('updater: npm ci failure rolls back -- the previous face is restored and the result says why', async () => {
+  const { root, face } = makeSoul('case-npm-fail');
+  const dir = makeNewFace(root, { lock: '{"lockfileVersion":3,"new":true}' });
+
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: false },
+    npmInstall: async () => ({ code: 1, err: 'ETARGET no matching version' }),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.items[0].reason, 'npm-ci-failed');
+
+  // back to exactly what was there before
+  assert.equal(JSON.parse(fs.readFileSync(path.join(face, 'package.json'), 'utf8')).version, '2.57.1');
+  assert.equal(fs.readFileSync(path.join(face, 'daemon', 'server.mjs'), 'utf8'), 'old daemon');
+  assert.equal(fs.readFileSync(path.join(face, 'state', 'sessions.json'), 'utf8'), '{"mine":true}');
+  assert.ok(fs.existsSync(path.join(face, 'node_modules', 'node-pty', 'pty.node')));
+  assert.equal(fs.existsSync(`${face}.prev`), false, 'the backup got its real name back');
+
+  // the receipt still describes the old install
+  assert.equal(JSON.parse(fs.readFileSync(receiptPath(root), 'utf8')).installed.face.version, '2.57.1');
+  assert.equal(JSON.parse(fs.readFileSync(updateResultPath(root), 'utf8')).ok, false);
+  // and the verified download survives, so a retry needs no second download
+  assert.ok(fs.existsSync(path.join(dir, 'package.json')), 'the downloaded copy must not be consumed by a rollback');
+});
+
+test('updater: a new copy with no package-lock.json is refused outright, nothing is touched', async () => {
+  const { root, face } = makeSoul('case-no-lock');
+  const dir = makeNewFace(root);
+  fs.rmSync(path.join(dir, 'package-lock.json'), { force: true });
+
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: false },
+    npmInstall: async () => { throw new Error('npm ci cannot run without a package-lock.json'); },
+    spawnFn: () => { throw new Error('must not relaunch on a refusal before any change'); },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.items[0].reason, 'no-package-lock');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(face, 'package.json'), 'utf8')).version, '2.57.1');
+  assert.equal(fs.existsSync(`${face}.prev`), false, 'nothing was moved aside');
+});
+
+test('updater: an install with no receipt is still replaced, and the result says receipt-missing', async () => {
+  const { root, face } = makeSoul('case-no-receipt');
+  fs.rmSync(receiptPath(root), { force: true });
+  const dir = makeNewFace(root);
+
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: false },
+    npmInstall: async () => ({ code: 0 }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.items[0].reason, 'receipt-missing');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(face, 'package.json'), 'utf8')).version, '2.58.0');
+  assert.equal(fs.existsSync(receiptPath(root)), false, 'no receipt must be invented');
+});
+
+test('updater: a package item starts IRIS-설치.cmd with IRIS_INSTALLER_AUTO=1 and skips face', async () => {
+  const { root, face } = makeSoul('case-package', { schema: 2 });
+  const faceDir = makeNewFace(root);
+  const pkgDir = path.join(root, '_agent', 'shared', 'downloads', 'update-20260914-000000', 'package');
+  fs.mkdirSync(pkgDir, { recursive: true });
+  fs.writeFileSync(path.join(pkgDir, 'IRIS-설치.cmd'), '@echo off\r\n', 'utf8');
+
+  const calls = [];
+  const result = await applyPlan({
+    plan: {
+      schema: 1,
+      root,
+      ...NO_WAIT,
+      items: [
+        { kind: 'face', dir: faceDir, version: '2.58.0' },
+        { kind: 'package', dir: pkgDir, version: '1.3.0' },
+      ],
+      relaunch: true,
+    },
+    spawnFn: fakeSpawn(calls),
+    npmInstall: async () => { throw new Error('npm must not run for a package item'); },
+  });
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.handedOffToInstaller, true);
+  assert.equal(result.relaunched, false, 'the installer relaunches the window, not the updater');
+
+  // exactly one spawn: the installer's .cmd, detached, with the auto flag and
+  // this plan's own soul -- the installer derives its root from
+  // IRIS_INSTALLER_SOUL_NAME, so without it a rehearsal soul would be told to
+  // update C:\IRIS instead of itself.
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].args.at(-1), /IRIS-설치\.cmd" --auto/);
+  assert.equal(calls[0].opts.env.IRIS_INSTALLER_AUTO, '1');
+  assert.equal(calls[0].opts.env.IRIS_INSTALLER_SOUL_NAME, 'ALPHA');
+  assert.equal(calls[0].opts.detached, true);
+
+  // face was left completely alone (the package carries the new one)
+  assert.equal(JSON.parse(fs.readFileSync(path.join(face, 'package.json'), 'utf8')).version, '2.57.1');
+  assert.ok(fs.existsSync(faceDir), 'the face download is untouched');
+  assert.equal(result.items.find((i) => i.kind === 'face').reason, 'skipped-included-in-package');
+});
+
+test('updater: a failed handoff to the installer still reopens the window (설계 4-5)', async () => {
+  const { root } = makeSoul('case-package-fail', { schema: 2 });
+  const pkgDir = path.join(root, '_agent', 'shared', 'downloads', 'update-20260914-000000', 'package');
+  fs.mkdirSync(pkgDir, { recursive: true }); // no IRIS-설치.cmd in it
+  fs.writeFileSync(path.join(faceDirFor(root), 'launch-hidden.vbs'), 'rem launcher', 'utf8');
+
+  const calls = [];
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'package', dir: pkgDir, version: '1.3.0' }], relaunch: true },
+    spawnFn: fakeSpawn(calls),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.items[0].reason, 'installer-cmd-missing');
+  assert.equal(result.handedOffToInstaller, false);
+  assert.equal(result.relaunched, true, 'nobody else is left to open the window');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].exe, 'wscript.exe');
+});
+
+// T22: 구조 변경 판정 -- 영수증 schema와 새 판 schema가 다르면 설치기 --auto를
+// 부르기 전에 reinstall-required로 거부한다 (Face가 T21 문구를 보여준다).
+test('updater: schema 1 receipt vs schema 2 package -- refuses --auto, reinstall-required (1→2)', async () => {
+  const { root } = makeSoul('case-schema-1-to-2', { schema: 1 });
+  const pkgDir = path.join(root, '_agent', 'shared', 'downloads', 'update-20260915-000000', 'package');
+  fs.mkdirSync(pkgDir, { recursive: true });
+  fs.writeFileSync(path.join(pkgDir, 'IRIS-설치.cmd'), '@echo off\r\n', 'utf8');
+
+  const calls = [];
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'package', dir: pkgDir, version: '2.0.0' }], relaunch: true },
+    spawnFn: fakeSpawn(calls),
+  });
+
+  assert.equal(result.ok, false);
+  // relaunch:true still reopens the window on refusal (설계 4-5) -- that spawn
+  // is wscript/launch-hidden, never the installer .cmd itself.
+  assert.equal(calls.length, 1);
+  assert.doesNotMatch(calls[0].args?.at(-1) ?? calls[0].exe, /IRIS-설치\.cmd/, 'the installer must never be spawned for a schema mismatch');
+  const item = result.items.find((i) => i.kind === 'package');
+  assert.equal(item.reason, 'reinstall-required');
+  assert.equal(item.code, 'reinstall-required');
+  assert.equal(item.message, '2.0은 설치 방식이 바뀌어 새로 설치합니다. 기존 자료는 그대로 두고 설치기를 실행하면 됩니다.');
+  assert.equal(item.downloadUrl, 'https://iris-workspace.com/install.html');
+  assert.equal(result.handedOffToInstaller, false);
+});
+
+test('updater: schema 2 receipt vs schema 2 package -- --auto runs as usual (2→2)', async () => {
+  const { root } = makeSoul('case-schema-2-to-2', { schema: 2 });
+  const pkgDir = path.join(root, '_agent', 'shared', 'downloads', 'update-20260915-000001', 'package');
+  fs.mkdirSync(pkgDir, { recursive: true });
+  fs.writeFileSync(path.join(pkgDir, 'IRIS-설치.cmd'), '@echo off\r\n', 'utf8');
+
+  const calls = [];
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'package', dir: pkgDir, version: '2.1.0' }], relaunch: true },
+    spawnFn: fakeSpawn(calls),
+  });
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.handedOffToInstaller, true);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].args.at(-1), /IRIS-설치\.cmd" --auto/);
+});
+
+test('updater: a missing receipt vs schema 2 package -- treated as schema 1, refuses (없음→2)', async () => {
+  const { root } = makeSoul('case-schema-missing-to-2', { schema: 1 });
+  fs.rmSync(receiptPath(root), { force: true });
+  const pkgDir = path.join(root, '_agent', 'shared', 'downloads', 'update-20260915-000002', 'package');
+  fs.mkdirSync(pkgDir, { recursive: true });
+  fs.writeFileSync(path.join(pkgDir, 'IRIS-설치.cmd'), '@echo off\r\n', 'utf8');
+
+  const calls = [];
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'package', dir: pkgDir, version: '2.0.0' }], relaunch: true },
+    spawnFn: fakeSpawn(calls),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(calls.length, 1);
+  assert.doesNotMatch(calls[0].args?.at(-1) ?? calls[0].exe, /IRIS-설치\.cmd/, 'the installer must never be spawned when the receipt is missing');
+  const item = result.items.find((i) => i.kind === 'package');
+  assert.equal(item.reason, 'reinstall-required');
+  assert.equal(item.code, 'reinstall-required');
+});
+
+test('updater: schema 1 receipt vs schema 1 package -- unchanged 1.x behaviour (1→1)', async () => {
+  const { root } = makeSoul('case-schema-1-to-1', { schema: 1 });
+  const pkgDir = path.join(root, '_agent', 'shared', 'downloads', 'update-20260915-000003', 'package');
+  fs.mkdirSync(pkgDir, { recursive: true });
+  fs.writeFileSync(path.join(pkgDir, 'IRIS-설치.cmd'), '@echo off\r\n', 'utf8');
+
+  const calls = [];
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'package', dir: pkgDir, version: '1.5.0' }], relaunch: true },
+    spawnFn: fakeSpawn(calls),
+    packageSchema: 1,
+  });
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.handedOffToInstaller, true);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].args.at(-1), /IRIS-설치\.cmd" --auto/);
+  const item = result.items.find((i) => i.kind === 'package');
+  assert.notEqual(item.reason, 'reinstall-required', 'a matching schema must not be treated as reinstall-required');
+});
+
+test('updater: an npm ci that cannot even start rolls back like one that fails', async () => {
+  const { root, face } = makeSoul('case-npm-throw');
+  const dir = makeNewFace(root, { lock: '{"lockfileVersion":3,"new":true}' });
+
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: false },
+    npmInstall: async () => { throw new Error('spawn ENOENT'); },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.items[0].reason, 'npm-ci-failed');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(face, 'package.json'), 'utf8')).version, '2.57.1');
+  assert.equal(fs.existsSync(`${face}.prev`), false);
+});
+
+// The safety net for everything nobody thought of: a disk error, a bug. Face
+// reads update-result.json on its next start, and the person needs a window --
+// so neither may be skipped just because an item threw.
+test('updater: an item that throws still produces a result file and a relaunch', async () => {
+  const { root, face } = makeSoul('case-throws');
+  const dir = makeNewFace(root);
+  fs.writeFileSync(path.join(face, 'launch-hidden.vbs'), 'rem launcher', 'utf8');
+  fs.writeFileSync(path.join(dir, 'launch-hidden.vbs'), 'rem launcher', 'utf8');
+  // Stand-in for an unforeseen filesystem failure: the receipt's atomic-write
+  // scratch name is occupied by a directory, so writeFileSync throws from deep
+  // inside the receipt step, after the swap has already happened.
+  fs.mkdirSync(`${receiptPath(root)}.tmp`, { recursive: true });
+
+  const calls = [];
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: true },
+    npmInstall: async () => ({ code: 0 }),
+    spawnFn: fakeSpawn(calls),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.items[0].reason, 'item-threw');
+  assert.ok(result.items[0].detail, 'the reason why must be recorded');
+  assert.equal(fs.existsSync(updateResultPath(root)), true, 'Face must still have something to read');
+  assert.equal(result.relaunched, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].exe, 'wscript.exe');
+});
+
+test('updater: a plan of an unknown schema changes nothing', async () => {
+  const { root, face } = makeSoul('case-schema');
+  const dir = makeNewFace(root);
+  const before = fs.readFileSync(path.join(face, 'package.json'), 'utf8');
+
+  const result = await applyPlan({
+    plan: { schema: 2, root, ...NO_WAIT, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: true },
+    waitFn: () => { throw new Error('must not even wait for the daemon'); },
+    spawnFn: () => { throw new Error('must not relaunch'); },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'unsupported-schema');
+  assert.equal(result.items[0].reason, 'not-attempted');
+  assert.equal(fs.readFileSync(path.join(face, 'package.json'), 'utf8'), before);
+});
+
+test('updater: an item pointing outside _agent\\shared\\downloads is refused', async () => {
+  const { root, face } = makeSoul('case-outside');
+  const elsewhere = path.join(root, 'elsewhere', 'face');
+  fs.mkdirSync(elsewhere, { recursive: true });
+  fs.writeFileSync(path.join(elsewhere, 'package.json'), '{"version":"9.9.9"}', 'utf8');
+  fs.writeFileSync(path.join(elsewhere, 'package-lock.json'), '{}', 'utf8');
+
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'face', dir: elsewhere, version: '9.9.9' }], relaunch: false },
+    npmInstall: async () => { throw new Error('must not get that far'); },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.items[0].reason, 'dir-outside-downloads');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(face, 'package.json'), 'utf8')).version, '2.57.1');
+
+  // the predicate itself, at its edges
+  const base = path.join(root, '_agent', 'shared', 'downloads');
+  assert.equal(insideDownloads(root, path.join(base, 'update-1', 'face')), true);
+  assert.equal(insideDownloads(root, base), false, 'the downloads folder itself is not an item');
+  assert.equal(insideDownloads(root, path.join(base, '..', 'tools', 'face')), false);
+  assert.equal(insideDownloads(root, null), false);
+});
+
+test('updater: relaunch uses wscript + launch-hidden.vbs when Face ships one', async () => {
+  const { root, face } = makeSoul('case-relaunch');
+  fs.writeFileSync(path.join(face, 'launch-hidden.vbs'), 'rem launcher', 'utf8');
+  const dir = makeNewFace(root);
+  fs.writeFileSync(path.join(dir, 'launch-hidden.vbs'), 'rem launcher', 'utf8');
+
+  const calls = [];
+  const result = await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: true },
+    npmInstall: async () => ({ code: 0 }),
+    spawnFn: fakeSpawn(calls),
+  });
+
+  assert.equal(result.relaunched, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].exe, 'wscript.exe');
+  assert.deepEqual(calls[0].args, ['//nologo', path.join(face, 'launch-hidden.vbs')]);
+  assert.equal(calls[0].opts.detached, true);
+});
+
+test('updater: relaunch hands the soul\'s bundled node to launch-hidden.vbs via IRIS_FACE_NODE (no PATH lookup)', async () => {
+  const { root, face } = makeSoul('case-relaunch-node');
+  fs.writeFileSync(path.join(face, 'launch-hidden.vbs'), 'rem launcher', 'utf8');
+  const dir = makeNewFace(root);
+  fs.writeFileSync(path.join(dir, 'launch-hidden.vbs'), 'rem launcher', 'utf8');
+
+  const calls = [];
+  await applyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: true },
+    npmInstall: async () => ({ code: 0 }),
+    spawnFn: fakeSpawn(calls),
+  });
+
+  assert.equal(calls[0].exe, 'wscript.exe');
+  // Without it the .vbs runs a bare "node" from PATH -- the 2026-09-23 fresh-PC
+  // dialog "IRIS-Face could not start node.exe".
+  assert.equal(calls[0].opts.env?.IRIS_FACE_NODE, path.join(toolsDir(root), 'node', 'node.exe'));
+});
+
+test('updater: the daemon never stopping leaves everything exactly as it was', async () => {
+  const { root, face } = makeSoul('case-timeout');
+  const dir = makeNewFace(root);
+  const before = fs.readFileSync(path.join(face, 'package.json'), 'utf8');
+  let slept = 0;
+
+  const result = await applyPlan({
+    plan: { schema: 1, root, daemonPid: 999999, daemonPort: 3458, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: true },
+    npmInstall: async () => { throw new Error('must not get this far'); },
+    spawnFn: () => { throw new Error('must not relaunch'); },
+    waitOptions: {
+      timeoutMs: 40,
+      pollMs: 10,
+      pidAliveFn: () => true,
+      portOpenFn: async () => true,
+      sleep: async (ms) => { slept += ms; },
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'daemon-still-running');
+  assert.equal(result.items[0].reason, 'not-attempted');
+  assert.ok(slept > 0, 'it really polled');
+  assert.equal(fs.readFileSync(path.join(face, 'package.json'), 'utf8'), before);
+  assert.equal(fs.existsSync(`${face}.prev`), false);
+  assert.ok(fs.existsSync(dir), 'the download is left for a retry');
+});
+
+test('waitForDaemonStop: waits for BOTH the pid and the port to be gone', async () => {
+  let ticks = 0;
+  const r = await waitForDaemonStop({
+    pid: 1234,
+    port: 3458,
+    timeoutMs: 10000,
+    pollMs: 1,
+    // pid dies first, the socket lingers two more polls
+    pidAliveFn: () => ticks < 1,
+    portOpenFn: async () => { ticks += 1; return ticks < 3; },
+    sleep: async () => {},
+  });
+  assert.equal(r.ok, true);
+  assert.ok(ticks >= 3, 'it must not stop at the first "pid is gone"');
+});
+
+test('parseArgs: both --plan <p> and a bare positional path are accepted', () => {
+  assert.deepEqual(parseArgs(['--plan', 'C:\\x\\plan.json']), { plan: 'C:\\x\\plan.json' });
+  // how the Face daemon calls it today
+  assert.deepEqual(parseArgs(['C:\\x\\plan.json']), { plan: 'C:\\x\\plan.json' });
+  assert.throws(() => parseArgs([]), /usage/);
+  assert.throws(() => parseArgs(['--nope']), /unknown arg/);
+});
+
+test('preserveAside: a directory held open briefly is retried, not failed', () => {
+  const dir = path.join(tmp, 'retry');
+  const slot = path.join(dir, 'face');
+  fs.mkdirSync(slot, { recursive: true });
+  fs.writeFileSync(path.join(slot, 'x.txt'), 'busy', 'utf8');
+
+  const slept = [];
+  let attempts = 0;
+  const realRename = fs.renameSync;
+  fs.renameSync = (from, to) => {
+    attempts += 1;
+    if (attempts <= 3) throw Object.assign(new Error('resource busy'), { code: 'EBUSY' });
+    return realRename(from, to);
+  };
+  try {
+    const moved = updaterPreserveAside(slot, { retries: 20, retryDelayMs: 100, sleep: (ms) => slept.push(ms) });
+    assert.equal(path.basename(moved), 'face.prev');
+  } finally {
+    fs.renameSync = realRename;
+  }
+  assert.equal(attempts, 4);
+  assert.deepEqual(slept, [100, 100, 100]);
+  assert.equal(fs.readFileSync(path.join(`${slot}.prev`, 'x.txt'), 'utf8'), 'busy');
+});
+
+test('preserveAside: a failure that is not transient is thrown at once, and retries run out', () => {
+  const dir = path.join(tmp, 'retry-fail');
+  const slot = path.join(dir, 'face');
+  fs.mkdirSync(slot, { recursive: true });
+
+  const realRename = fs.renameSync;
+  let attempts = 0;
+  fs.renameSync = () => {
+    attempts += 1;
+    throw Object.assign(new Error('no such file'), { code: 'ENOENT' });
+  };
+  try {
+    assert.throws(() => updaterPreserveAside(slot, { sleep: () => {} }), /no such file/);
+    assert.equal(attempts, 1, 'ENOENT must not be retried');
+
+    attempts = 0;
+    fs.renameSync = () => {
+      attempts += 1;
+      throw Object.assign(new Error('resource busy'), { code: 'EBUSY' });
+    };
+    assert.throws(() => updaterPreserveAside(slot, { retries: 3, sleep: () => {} }), /resource busy/);
+    assert.equal(attempts, 4, 'the first try plus `retries` more');
+  } finally {
+    fs.renameSync = realRename;
+  }
+});
+
+// updater/apply.mjs deliberately duplicates install.mjs's .prev rotation and
+// carry-over instead of importing them (the updater is installed on its own).
+// These two tests are what keep the copies honest: same inputs, same returned
+// values, same folders.
+test('carryOver: the updater copy and installer/lib/install.mjs agree', () => {
+  const results = {};
+  for (const [label, fn] of [['updater', updaterCarryOver], ['installer', installerCarryOver]]) {
+    const base = path.join(tmp, 'carry-parity', label);
+    const from = path.join(base, 'face.prev');
+    const to = path.join(base, 'face');
+    fs.mkdirSync(path.join(from, 'state'), { recursive: true });
+    fs.mkdirSync(path.join(from, 'modules'), { recursive: true });
+    fs.mkdirSync(path.join(to, 'modules'), { recursive: true }); // already shipped -> must not be clobbered
+    fs.writeFileSync(path.join(from, 'state', 's.json'), 'mine', 'utf8');
+    fs.writeFileSync(path.join(from, 'modules', 'm.json'), 'mine', 'utf8');
+    fs.writeFileSync(path.join(to, 'modules', 'packaged.json'), 'theirs', 'utf8');
+
+    const out = fn(from, to, ['state', 'modules', 'absent']);
+    results[label] = {
+      out,
+      to: fs.readdirSync(to).sort(),
+      from: fs.readdirSync(from).sort(),
+      keptPackaged: fs.existsSync(path.join(to, 'modules', 'packaged.json')),
+      userModuleLeftBehind: fs.existsSync(path.join(from, 'modules', 'm.json')),
+    };
+  }
+  assert.deepEqual(results.updater, results.installer);
+  assert.deepEqual(results.updater.out.carried, ['state']);
+  assert.equal(results.updater.out.failed.length, 1);
+  assert.match(results.updater.out.failed[0], /^modules: already present/);
+  assert.equal(results.updater.keptPackaged, true, 'the package copy is never deleted');
+  assert.equal(results.updater.userModuleLeftBehind, true, 'the user copy stays safe in .prev');
+});
+
+test('preserveAside: the updater copy and installer/lib/install.mjs agree, rotation for rotation', () => {
+  const base = path.join(tmp, 'parity');
+  const results = {};
+  for (const [label, fn] of [['updater', updaterPreserveAside], ['installer', installerPreserveAside]]) {
+    const dir = path.join(base, label);
+    const slot = path.join(dir, 'face');
+    fs.mkdirSync(dir, { recursive: true });
+    const moved = [fn(slot)]; // nothing there yet -> null
+    for (let i = 0; i < 3; i++) {
+      fs.mkdirSync(slot, { recursive: true });
+      fs.writeFileSync(path.join(slot, 'n.txt'), String(i), 'utf8');
+      const to = fn(slot);
+      moved.push(to === null ? null : path.basename(to));
+    }
+    results[label] = { moved, listing: fs.readdirSync(dir).sort() };
+  }
+  assert.deepEqual(results.updater, results.installer);
+  assert.deepEqual(results.updater.moved, [null, 'face.prev', 'face.prev-2', 'face.prev-3']);
+  assert.deepEqual(results.updater.listing, ['face.prev', 'face.prev-2', 'face.prev-3']);
+});
+
+// --------------------------------------------------------------------------
+// P18 (2026-11-18): health check after relaunch -> prune, or roll back
+// --------------------------------------------------------------------------
+
+test('updater: a healthy relaunch keeps only this update\'s backup (.prev 최근 1개) and never touches .failed', async () => {
+  const { root, face } = makeSoul('case-prune');
+  fs.mkdirSync(`${face}.prev`, { recursive: true });
+  fs.writeFileSync(path.join(`${face}.prev`, 'marker.txt'), 'older backup', 'utf8');
+  fs.mkdirSync(`${face}.failed`, { recursive: true });
+  const dir = makeNewFace(root);
+  const calls = [];
+  const asked = [];
+  const result = await rawApplyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, daemonPort: 3999, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: true },
+    npmInstall: async () => ({ code: 0 }),
+    spawnFn: fakeSpawn(calls),
+    healthFn: async (o) => { asked.push(o); return { ok: true, version: '2.58.0', waitedMs: 5 }; },
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.healthy, true);
+  assert.deepEqual(asked.map((o) => [o.port, o.expectVersion]), [[3999, '2.58.0']], 'asks the plan\'s port for the NEW version');
+  assert.deepEqual(result.prunedPrevious, ['face.prev']);
+  assert.equal(fs.existsSync(`${face}.prev`), false, 'the older backup is gone');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(`${face}.prev-2`, 'package.json'), 'utf8')).version, '2.57.1', 'this update\'s backup stays');
+  assert.ok(fs.existsSync(`${face}.failed`), '.failed is never pruned');
+});
+
+test('updater: no answer after relaunch -> the previous copy and the user\'s folders go back, the new one becomes .failed, receipt restored, started again', async () => {
+  const { root, face } = makeSoul('case-unhealthy');
+  const dir = makeNewFace(root);
+  const calls = [];
+  let n = 0;
+  const result = await rawApplyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, daemonPort: 3999, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: true },
+    npmInstall: async () => ({ code: 0 }),
+    spawnFn: fakeSpawn(calls),
+    healthFn: async () => { n += 1; return n === 1 ? { ok: false, waitedMs: 120000 } : { ok: true, waitedMs: 3 }; },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.healthy, false);
+  assert.equal(result.rolledBack, true);
+  assert.equal(result.items[0].reason, 'health-check-failed');
+  assert.equal(result.items[0].rolledBack, true);
+  assert.equal(result.items[0].previousHealthy, true, 'the restored copy answered');
+  // the old code is back in the slot, with the user's data and node_modules
+  assert.equal(fs.readFileSync(path.join(face, 'daemon', 'server.mjs'), 'utf8'), 'old daemon');
+  assert.equal(fs.readFileSync(path.join(face, 'state', 'sessions.json'), 'utf8'), '{"mine":true}');
+  assert.equal(fs.readFileSync(path.join(face, 'modules', 'messenger', 'module.json'), 'utf8'), '{"name":"messenger"}');
+  assert.equal(fs.readFileSync(path.join(face, 'node_modules', 'node-pty', 'pty.node'), 'utf8'), 'old binary');
+  // the failed new copy is kept aside, not deleted
+  assert.equal(fs.readFileSync(path.join(`${face}.failed`, 'daemon', 'server.mjs'), 'utf8'), 'new daemon');
+  assert.equal(result.failedCopy, '_agent\\shared\\tools\\face.failed');
+  assert.equal(fs.existsSync(`${face}.prev`), false, 'the backup became the slot again');
+  const receipt = JSON.parse(fs.readFileSync(receiptPath(root), 'utf8'));
+  assert.equal(receipt.installed.face.version, '2.57.1', 'receipt back to the version that runs');
+  assert.equal(receipt.installed.face.failedCopy, '_agent\\shared\\tools\\face.failed');
+  assert.equal(calls.length, 2, 'started once for the new copy, once for the restored one');
+  assert.match(fs.readFileSync(updateLogPath(root), 'utf8'), /health: NO ANSWER[\s\S]*revert: previous copy is back[\s\S]*health after rollback: ok/);
+});
+
+test('updater: when the previous copy cannot be put back, no half-replaced window is started', async () => {
+  const { root, face } = makeSoul('case-halfreplaced');
+  const dir = makeNewFace(root, { lock: '{"lockfileVersion":3,"new":true}' });
+  const calls = [];
+  const result = await rawApplyPlan({
+    plan: { schema: 1, root, ...NO_WAIT, items: [{ kind: 'face', dir, version: '2.58.0' }], relaunch: true },
+    // npm fails, and the backup has gone missing meanwhile -> rollback cannot restore
+    npmInstall: async () => { fs.renameSync(`${face}.prev`, `${face}.gone`); return { code: 1, err: 'boom' }; },
+    spawnFn: fakeSpawn(calls),
+    healthFn: async () => { throw new Error('must not be asked'); },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.items[0].restored, false);
+  assert.equal(calls.length, 0, 'nothing was started');
+  assert.equal(result.relaunched, false);
+  assert.match(fs.readFileSync(updateLogPath(root), 'utf8'), /relaunch skipped/);
+});
+
+test('defaultHealthCheck: waits for /api/health with the NEW version; an old daemon answering is not healthy', async () => {
+  const http = await import('node:http');
+  let version = '2.57.1';
+  const srv = http.createServer((q, s) => {
+    if (q.url === '/api/health') { s.writeHead(200, { 'content-type': 'application/json' }); s.end(JSON.stringify({ ok: true, version })); }
+    else { s.writeHead(404); s.end(); }
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const port = srv.address().port;
+  try {
+    const old = await defaultHealthCheck({ port, expectVersion: '2.58.0', timeoutMs: 600, intervalMs: 100 });
+    assert.equal(old.ok, false, 'the old version answering does not count');
+    setTimeout(() => { version = '2.58.0'; }, 300);
+    const fresh = await defaultHealthCheck({ port, expectVersion: '2.58.0', timeoutMs: 5000, intervalMs: 100 });
+    assert.equal(fresh.ok, true);
+    assert.equal(fresh.version, '2.58.0');
+  } finally {
+    srv.close();
+  }
+  const none = await defaultHealthCheck({ port, timeoutMs: 400, intervalMs: 100 });
+  assert.equal(none.ok, false, 'nothing listening = not healthy');
+});

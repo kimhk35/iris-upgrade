@@ -1,0 +1,43 @@
+// Minimal glob → RegExp converter (no minimatch dependency).
+// Supports '**' (any path, including '/') and '*' (within one path segment).
+// A literal '?' in a glob matches a literal '?' (glob '?' = "any one char"
+// is NOT supported here -- it is treated as an ordinary, escaped literal).
+// Matches against a forward-slash-joined relative path.
+//
+// Implementation: tokenize the glob left-to-right -- '**/' (optional lead
+// directories), standalone '**' (anything, including '/'), '*' (anything
+// within one segment), or a single literal character -- and append each
+// token's regex fragment directly to the output string. No placeholder
+// substitution is used, so the source stays plain, printable text (no NUL
+// bytes), which keeps `lib/glob.mjs` a normal text file for git diff/blame.
+const METACHARS = new Set(['.', '+', '?', '^', '$', '{', '}', '(', ')', '|', '[', ']', '\\', '/']);
+
+export function globToRegex(glob) {
+  let re = '';
+  let i = 0;
+  while (i < glob.length) {
+    if (glob.startsWith('**/', i)) {
+      re += '(?:.*/)?';
+      i += 3;
+      continue;
+    }
+    if (glob.startsWith('**', i)) {
+      re += '.*';
+      i += 2;
+      continue;
+    }
+    const c = glob[i];
+    if (c === '*') {
+      re += '[^/]*';
+      i += 1;
+      continue;
+    }
+    re += METACHARS.has(c) ? `\\${c}` : c;
+    i += 1;
+  }
+  return new RegExp(`^${re}$`);
+}
+
+export function globMatch(glob, relPath) {
+  return globToRegex(glob).test(relPath);
+}

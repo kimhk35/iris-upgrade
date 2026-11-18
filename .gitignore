@@ -1,0 +1,30 @@
+# IRIS 고도화(iris-upgrade) — 공개 저장소에 올리지 않는 것. 부품 폴더마다 원작의 .gitignore 가 따로 있고 그것도 그대로 적용된다.
+
+# 원작 배포 zip(보존용 원본 — 원작자 저장소에 이미 공개돼 있다)
+원본/
+
+# 확인용 시안·점검 보고서 — 원작 IRIS 의 고치지 않은 보안 구멍을 설명하므로 공개하지 않는다
+확인용/
+
+# 작업공간 메모(이 PC 의 폴더 체계용)
+/CLAUDE.md
+**/CLAUDE.md
+
+# 실행·빌드 결과
+node_modules/
+**/state/
+_build/
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.log
+.playwright-mcp/
+.superpowers/
+
+# 비밀값
+.env
+.env.*
+secrets/
+*.key
+*.pem

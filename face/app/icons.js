@@ -1,0 +1,40 @@
+// IRIS-Face · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home
+/* 이름 → 선 아이콘(SVG, currentColor, 선 1.7). 헤더 ⚙·＋ 와 같은 결.
+   모듈 `module.json.icon` 은 여기 있는 이름 중 하나여야 한다(v2.52, 2026-09-13 — 이모지 표시 폐지).
+   모르는 값(이모지 포함)은 `plug` 로 그린다. 본체는 모듈이 준 문자열을 절대 HTML 로 넣지 않는다. */
+(function () {
+  'use strict';
+  const wrap = (d, size) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+  const PATHS = {
+    plug: '<path d="M9 3.5v3.5M15 3.5v3.5M6.5 7h11v3.5a5.5 5.5 0 0 1-11 0zM12 16v4.5"/>',
+    chat: '<path d="M4.5 6.5A2.5 2.5 0 0 1 7 4h10a2.5 2.5 0 0 1 2.5 2.5v6A2.5 2.5 0 0 1 17 15h-6.5L6.5 18.5V15H7a2.5 2.5 0 0 1-2.5-2.5z"/>',
+    bell: '<path d="M6.5 16v-5a5.5 5.5 0 0 1 11 0v5l1.5 2h-14zM10 20.5a2 2 0 0 0 4 0"/>',
+    mail: '<rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4.5 7.5 7.5 5.5 7.5-5.5"/>',
+    calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+    globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.8 2.8 2.8 14.2 0 17M12 3.5c-2.8 2.8-2.8 14.2 0 17"/>',
+    book: '<path d="M5 4.5h5.5a2 2 0 0 1 1.5.7 2 2 0 0 1 1.5-.7H19v14h-5.5a1.5 1.5 0 0 0-1.5 1.2A1.5 1.5 0 0 0 10.5 18.5H5zM12 5.2v14"/>',
+    wrench: '<path d="M14.5 4.5a4.5 4.5 0 0 0 4.9 6.1l-8.6 8.6a1.8 1.8 0 0 1-2.5-2.5l8.6-8.6a4.5 4.5 0 0 0-2.4-3.6z"/>',
+    clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+    folder: '<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2a1.5 1.5 0 0 1 1.06.44L11 6.7h8.5A1.5 1.5 0 0 1 21 8.2v9.3a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/>',
+    bolt: '<path d="M13 3 5.5 13.5H11L10 21l7.5-10.5H12z"/>',
+    people: '<circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M15.5 5.6a3.2 3.2 0 0 1 0 5.8M17 13.7a5.5 5.5 0 0 1 3.5 5.3"/>',
+    stop: '<circle cx="12" cy="12" r="8.5"/><rect x="9" y="9" width="6" height="6" rx="1"/>', // 대화의 "중단됨" 줄(v2.80)
+    shield: '<path d="M12 3.5 5 6.2v5.3c0 4.3 3 7.6 7 9 4-1.4 7-4.7 7-9V6.2z"/><path d="M9.2 12.2l2 2 3.8-4"/>', // 정지 훅 줄(v2.82)
+    redo: '<path d="M19 8.5h-9a5 5 0 0 0 0 10h3M19 8.5l-3.5-3.5M19 8.5 15.5 12"/>', // 끊긴 답 이어쓰기 줄(v2.82)
+    palette: '<circle cx="12" cy="12" r="8.5"/><circle cx="8.5" cy="10" r="1" fill="currentColor"/><circle cx="12" cy="7.5" r="1" fill="currentColor"/><circle cx="15.5" cy="10" r="1" fill="currentColor"/><path d="M12 20.5c-1.5 0-2-1-2-2s.8-2 2-2h1.5a3 3 0 0 0 3-3"/>', // 설정 목차 「디자인」(v2.87)
+    terminal: '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="m7.5 10 2.5 2-2.5 2M12.5 14.5h4"/>', // 설정 목차 「세션 기본값」(v2.87)
+    refresh: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4"/>', // 설정 목차 「업데이트·정보」(v2.87)
+    key: '<circle cx="8" cy="15" r="3.5"/><path d="m10.5 12.5 8-8M16 7l2.5 2.5M14 9l2 2"/>', // 설정 → 계정·보안 「IRIS 열쇠」(v2.88)
+    pencil: '<path d="M4.5 19.5h3.8L18.6 9.2a2.2 2.2 0 0 0-3.1-3.1L5.2 16.4z"/><path d="m14 7.6 3.1 3.1"/>', // 이름 바꾸기 연필(v2.86)
+    graph: '<circle cx="12" cy="5.5" r="2.2"/><circle cx="5.5" cy="18" r="2.2"/><circle cx="18.5" cy="18" r="2.2"/><path d="M10.9 7.4 6.6 16M13.1 7.4l4.3 8.6M7.7 18h8.6"/>', // 설정 → 온톨로지(v2.90)
+    search: '<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/>', // 설정 온톨로지·도구 검색칸(v2.90)
+    copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/>', // 복사(v2.102 온톨로지 인터뷰 프롬프트)
+    check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>', // 복사됨(v2.102)
+  };
+  const NAMES = Object.keys(PATHS);
+  /** 이름이 목록에 있으면 그 이름, 아니면 'plug'. */
+  const resolve = (name) => (typeof name === 'string' && Object.prototype.hasOwnProperty.call(PATHS, name)) ? name : 'plug';
+  /** SVG 문자열. 이름은 resolve()를 거치므로 어떤 입력이든 안전한 고정 마크업만 나온다. */
+  const svg = (name, size = 18) => wrap(PATHS[resolve(name)], Number(size) || 18);
+  window.Icons = { svg, resolve, names: () => NAMES.slice() };
+})();

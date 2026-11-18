@@ -1,0 +1,29 @@
+/* IRIS-Face · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home */
+/* 역할 캐릭터(app/persona.js, v2.95) — 같은 사람 8모습 그림 + 명찰 자리에 얹는 이름표 · 숨쉬기 · 마우스 올리면 앞으로 · 걷기.
+   움직임은 담는 상자에 .ps-live 가 있을 때만(화면에 보일 때), 동작 줄이기 설정이면 멈춤. 공용 이름은 ps- 접두. */
+.ps-pp { position: relative; display: block; width: 100%; aspect-ratio: 360 / 440; container-type: inline-size; pointer-events: none; border-radius: 12px; overflow: hidden; background: #fff; transition: transform .3s ease; }
+.ps-pp .ps-img { display: block; width: 100%; height: 100%; object-fit: contain; user-select: none; transform-origin: 50% 100%; }
+.ps-pp .ps-name { position: absolute; left: calc(var(--bx, .655) * 100%); top: calc(var(--by, .662) * 100%); transform: translate(-50%, -50%); max-width: 56cqw; padding: .25em .6em; border-radius: .35em; background: #fff; border: max(1px, .5cqw) solid #24366f; box-shadow: 0 1px 3px rgba(20,30,70,.25); color: #151c30; font: 700 max(10px, 7.4cqw)/1.25 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.02em; }
+.ps-pp .ps-name.ph { color: #8a92a6; font-weight: 500; border-style: dashed; }
+.ps-pp.empty .ps-img { opacity: .38; filter: grayscale(.6); }
+.ps-sub { display: block; margin-top: 4px; font-size: 11px; color: var(--ink-2); text-align: center; white-space: nowrap; }
+
+/* 캐릭터 단추(격자의 한 명) */
+.ps-fig { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; padding: 4px 2px 6px; border: 0; border-radius: 12px; background: none; color: var(--ink-2); cursor: pointer; transition: opacity .22s ease, filter .22s ease; }
+.ps-fig::before { content: ""; position: absolute; inset: 6% 4% 14%; border-radius: 50%; background: radial-gradient(ellipse, color-mix(in srgb, var(--iris) 16%, transparent), transparent 68%); opacity: 0; transition: opacity .3s; pointer-events: none; }
+.ps-fig:hover::before, .ps-fig:focus-visible::before { opacity: 1; }
+.ps-fig:hover .ps-pp, .ps-fig:focus-visible .ps-pp { transform: translateY(-4px) scale(1.03); }
+.ps-fig.dim { opacity: .5; }
+.ps-fig .ps-tag { font-size: 10.5px; color: var(--ink-3); line-height: 1.3; }
+.ps-pick.picking .ps-fig:not(.chosen) { opacity: .12; filter: blur(1px); }
+
+/* 숨쉬기 · 걷기(고른 뒤 왼쪽으로) — 도착하면 트리(오른쪽) 쪽으로 몸을 살짝 기울인다 */
+.ps-live .ps-img { animation: ps-breathe 4.8s ease-in-out infinite; }
+.ps-walking .ps-img { animation: ps-bob .36s ease-in-out infinite; }
+.ps-turned .ps-img { transform: rotate(1.2deg); }
+@keyframes ps-breathe { 50% { transform: translateY(-1.5%) scaleY(1.01); } }
+@keyframes ps-bob { 50% { transform: translateY(-3%); } }
+@media (prefers-reduced-motion: reduce) {
+  .ps-live .ps-img, .ps-walking .ps-img { animation: none !important; }
+  .ps-pp, .ps-fig { transition: none; }
+}

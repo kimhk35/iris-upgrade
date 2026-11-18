@@ -1,0 +1,858 @@
+// IRIS-Face · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home
+/* IRIS 클라이언트: 레일(작업목록) · 무대(별의 구 / 대화 / 터미널) · 도크(폴더 → 에이전트·모델·사고깊이 → 요청).
+   터미널 방식 그대로: 사용자가 조합을 고르고 세션을 열면 그 세션에서 쭉 쓴다. 자동 판정 없음. */
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const STATUS_KO = { busy: '작업 중', idle: '대기', attention: '확인 필요', exited: '종료됨', dead: '재개 가능', orphan: '외부 소유', delegated: '보조 작업 중', waiting: '보조 응답 대기' };
+  /** 겉보기 상태(v2.40, 2026-09-11): 데몬 상태가 '대기'인데 살아 있는 보조(서브에이전트)가 있으면 초록으로 그리지 않는다.
+   *  running이 하나라도 있으면 'delegated'(보라 고리), running은 없고 quiet(60초 조용, 완료 미확정)만 남았으면 'waiting'(노란 고리, v2.40.1 — 조용하다고 끝난 게 아니다).
+   *  데몬 상태(rec.status)는 터미널 화면 판정·Esc 중단에 묶여 있어 손대지 않고, 점·글자만 이 값으로 그린다. */
+  // 배경 작업(v2.80, 2026-10-07): 데몬이 {type:'bg'} 로 주는 아직 안 끝난 배경 명령·감시(코덱스 위임 포함). 메인·보조가 쉬어도 이게 남으면
+  // 초록(완료)이 아니라 'delegated'(파란 도는 고리 · "배경 작업 중 ⁺N")로 그린다 — 사용자 신고 "아직 안 끝났는데 초록불".
+  const bgMap = new Map();
+  const bgN = (id) => (bgMap.get(id) || []).length;
+  const liveN = (id) => SubPanel.alive(id) + bgN(id); // 살아 있는 일 = 보조(running+quiet) + 배경 작업
+  // 무엇이 몇 분째 도는지(v2.81, 2026-10-07 사용자 신고 "끝났는데 핀이 돌아 헷갈린다"): 툴팁·대화 아래 띠가 쓰는 한 줄씩.
+  const bgLines = (id) => (bgMap.get(id) || []).map(b => {
+    const min = Math.max(0, Math.floor((Date.now() - (Date.parse(b.t) || Date.now())) / 60000));
+    return `${b.kind === 'monitor' ? '감시' : '배경 명령'} · ${b.desc || b.id} · ${min}분째`;
+  });
+  const viewStatus = (s) => (s.status !== 'idle' ? s.status : (SubPanel.running(s.id) || bgN(s.id)) ? 'delegated' : SubPanel.alive(s.id) ? 'waiting' : 'idle');
+  const statusText = (s) => {
+    const v = viewStatus(s);
+    if (v === 'delegated') return `${SubPanel.running(s.id) ? STATUS_KO.delegated : '배경 작업 중'} ⁺${liveN(s.id)}`;
+    return v === 'waiting' ? `${STATUS_KO[v]} ⁺${SubPanel.alive(s.id)}` : (STATUS_KO[v] || v);
+  };
+  const AGENT_KO = { claude: 'Claude', codex: 'Codex' };
+  let sessions = [], current = null, ws = null, term = null, fit = null, mode = 'chat', AGENTS = null, ACCT = null;
+  let folder = null;                 // 새 요청 모드에서 고른 폴더
+  let setupMode = 'new';             // 'new' = 새 세션 조합 / 'switch' = 열린 세션의 조합 바꾸기
+  let renaming = null;               // 이름 바꾸는 중 { id, cancel } — 그동안 render()가 목록·머리 제목을 다시 그리지 않는다(v2.85)
+  const sel = loadSel();             // { agent, model:{claude,codex}, effort:{claude,codex}, readOnly }
+  const api = async (method, path, body) => { const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json', ...Profile.headers() }, body: body ? JSON.stringify(body) : undefined }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.statusText); return j; };
+  const shortPath = (p) => p.split(/[\\/]/).filter(Boolean).slice(-1)[0] || p;
+  const cur = () => sessions.find(s => s.id === current) || null;
+  const PERM_KO = { bypassPermissions: '전부 허용', acceptEdits: '편집 자동 허용', auto: '자동', dontAsk: '묻지 않음', manual: '매번 묻기', plan: '계획만', never: '승인 없음', 'on-request': '필요 시 승인', 'read-only': '읽기 전용', 'workspace-write': '작업 폴더 쓰기', 'danger-full-access': '전체 접근' };
+  const permText = (r) => [r.permission, r.approval, r.sandbox].filter(Boolean).map(k => PERM_KO[k] || k).join(' · ');
+  const label = (r) => r ? `${AGENT_KO[r.agent] || r.agent} ${r.modelLabel || r.model} · ${r.effort}${permText(r) ? ' · ' + permText(r) : ''}` : '';
+
+  IrisStars.mount($('#iris'));
+  Transcript.mount($('#chat'));
+
+  // ---------- 조합 선택 상태(마지막 선택 기억) ----------
+  // 세팅 진행 막대(v2.65, 가이드 v14 0-6): 데몬이 _agent\setup\setup-progress.json 을 읽어 보낸다. 없으면 숨김, 전부 끝나면 잠시 보이고 숨김.
+  let setupHideTimer = null;
+  function renderSetup(p) {
+    const bar = document.getElementById('setup-bar'); if (!bar) return;
+    clearTimeout(setupHideTimer);
+    if (!p || !p.total) { bar.hidden = true; return; }
+    const st = { pending: '·', running: '▶', done: '✓', skipped: '–', blocked: '!' };
+    document.getElementById('sb-title').textContent = p.title || 'IRIS 세팅';
+    document.getElementById('sb-count').textContent = `${p.done}/${p.total} · ${p.pct}%`;
+    document.getElementById('sb-fill').style.width = `${p.pct}%`;
+    document.getElementById('sb-fill').className = 'sb-fill' + (p.blocked ? ' blocked' : p.complete ? ' complete' : '');
+    document.getElementById('sb-steps').innerHTML = p.stages.map((s) => `<span class="sb-step ${s.status}" title="${esc(s.note || '')}">${st[s.status] || '·'} ${esc(s.label)}</span>`).join('');
+    const now = document.getElementById('sb-now');
+    now.textContent = p.blocked ? `멈춤: ${p.blocked.label}${p.blocked.note ? ` — ${p.blocked.note}` : ''}` : p.complete ? '세팅이 모두 끝났습니다.' : p.current ? `지금: ${p.current.label}` : '다음 단계를 기다리는 중';
+    bar.hidden = false;
+    if (p.complete) setupHideTimer = setTimeout(() => { bar.hidden = true; }, 5 * 60 * 1000);
+  }
+  function loadSel() { try { const s = JSON.parse(localStorage.getItem('iris.sel') || 'null'); if (s && s.model && s.effort) return { permission: '', approval: '', sandbox: '', ...s }; } catch {} return { agent: 'claude', model: { claude: 'opus', codex: 'gpt-6.1-sol' }, effort: { claude: 'high', codex: 'medium' }, permission: '', approval: '', sandbox: '' }; }
+  function saveSel() { try { localStorage.setItem('iris.sel', JSON.stringify(sel)); } catch {} }
+  // 새 세션 기본 에이전트 = 설치기가 고른 주도 에이전트(사용자가 한 번이라도 고르기 전까지만). 코덱스만 로그인한 PC 가 클로드로 서지 않게(2026-09-19).
+  // v2.90: 에이전트 목록(/api/agents)보다 hello 가 먼저 오면 AGENTS 가 아직 null — 예전엔 여기서 오류가 나 hello 처리 전체가 멈췄다
+  // (코덱스가 주도인 설치에서 목록·튜토리얼이 안 그려짐). 목록이 오면 그때 적용한다.
+  let pendingLead = null;
+  function applyLeadAgent(h) {
+    const lead = h && h.leadAgent;
+    if (!AGENTS) { if (lead) pendingLead = h; return; }
+    let saved = null; try { saved = localStorage.getItem('iris.sel'); } catch {}
+    if (!lead || saved || !AGENTS[lead] || sel.agent === lead) return;
+    sel.agent = lead; renderSetup();
+  }
+  const flushLead = () => { if (pendingLead && AGENTS) { const h = pendingLead; pendingLead = null; applyLeadAgent(h); } };
+  // 권한 기본값은 설정(⚙ → 권한 기본값)에서 온다
+  function currentSel() { const st = Settings.get(); return { agent: sel.agent, model: sel.model[sel.agent], effort: sel.effort[sel.agent], permission: sel.agent === 'claude' ? (st.permission || '') : '', approval: sel.agent === 'codex' ? (st.approval || '') : '', sandbox: sel.agent === 'codex' ? (st.sandbox || '') : '' }; }
+  const fill = (el, list, val) => { el.innerHTML = list.map(o => `<option value="${esc(o.id)}">${esc(o.label)}</option>`).join(''); el.value = val ?? ''; };
+  const AGENT_NAME = { claude: 'Claude', codex: 'Codex' };
+  // v2.96.2(2026-10-27 사용자 결정, 옛 v2.76 한 줄 안내 대체): 입력창 위 긴 안내 글은 없앴다. 프로그램이 없거나 계정이 0개인
+  // 에이전트 버튼은 **비활성**(누를 수 없음) + 마우스를 올리면 짧은 말풍선. 고른 쪽이 꺼지면 켜진 쪽으로 옮긴다. 둘 다 꺼지면 막지 않는다(할 수 있는 게 없어짐).
+  const OFF_TIP = { missing: '프로그램 없음 — IRIS 설치 파일을 다시 실행하면 받습니다', account: '계정 연결 안 됨 — 대시보드에서 계정을 추가하면 켜집니다' };
+  function agentOff() {
+    const off = {};
+    for (const k of ACCT?.missing || []) if (AGENTS[k]) off[k] = 'missing';
+    const acc = ACCT?.accounts;
+    if (acc) for (const k of Object.keys(AGENTS)) if (!off[k] && acc[k] === 0) off[k] = 'account';
+    return Object.keys(off).length >= Object.keys(AGENTS).length ? {} : off;
+  }
+  function renderSetup() {
+    if (!AGENTS) return;
+    const off = agentOff();
+    for (const b of document.querySelectorAll('.seg-agent .seg-btn')) {
+      const k = b.dataset.agent; b.hidden = !AGENTS[k];
+      // disabled 속성 대신 aria-disabled + 누름 무시: disabled 버튼은 마우스 사건을 안 받아 말풍선이 안 뜰 수 있다
+      b.setAttribute('aria-disabled', off[k] ? 'true' : 'false'); b.classList.toggle('no-account', !!off[k]); b.title = off[k] ? `${AGENT_NAME[k] || k} · ${OFF_TIP[off[k]]}` : '';
+    }
+    if (!AGENTS[sel.agent] || (off[sel.agent] && setupMode !== 'switch')) { const on = Object.keys(AGENTS).find(k => !off[k]); if (on && on !== sel.agent) { sel.agent = on; saveSel(); } }
+    const a = AGENTS[sel.agent];
+    const model = a.models.find(m => m.id === sel.model[sel.agent]) || a.models.find(m => m.id === a.default.model);
+    const efforts = model.efforts || a.efforts;
+    const effort = a.efforts.slice(0, a.efforts.indexOf(sel.effort[sel.agent]) + 1).reverse().find(e => efforts.includes(e)) || a.default.effort;
+    if (sel.model[sel.agent] !== model.id || sel.effort[sel.agent] !== effort) {
+      sel.model[sel.agent] = model.id; sel.effort[sel.agent] = effort; saveSel();
+    }
+    for (const b of document.querySelectorAll('.seg-agent .seg-btn')) b.classList.toggle('active', b.dataset.agent === sel.agent);
+    const sm = $('#sel-model'); sm.innerHTML = a.models.map(m => `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join(''); sm.value = sel.model[sel.agent];
+    const se = $('#sel-effort'); se.innerHTML = efforts.map(e => `<option value="${esc(e)}">${esc(e)}</option>`).join(''); se.value = sel.effort[sel.agent];
+    const s = cur();
+    // 세션 모드에서는 조합 줄을 감춘다. 입력창의 조합 아이콘을 누르면 '이어가기' 모드로 나타난다.
+    $('#setup').hidden = !!s && setupMode !== 'switch';
+    $('#setup').classList.toggle('switching', setupMode === 'switch');
+    $('#btn-folder').hidden = setupMode === 'switch';
+    $('#setup-apply').hidden = setupMode !== 'switch'; $('#setup-cancel').hidden = setupMode !== 'switch';
+    $('#btn-tune').hidden = !s; $('#btn-tune').classList.toggle('active', setupMode === 'switch');
+  }
+  document.querySelectorAll('.seg-agent .seg-btn').forEach(b => b.onclick = () => { if (b.getAttribute('aria-disabled') === 'true') return; sel.agent = b.dataset.agent; saveSel(); renderSetup(); });
+  $('#sel-model').onchange = (e) => { sel.model[sel.agent] = e.target.value; saveSel(); renderSetup(); };
+  $('#sel-effort').onchange = (e) => { sel.effort[sel.agent] = e.target.value; saveSel(); };
+  $('#btn-tune').onclick = () => {
+    const s = cur(); if (!s) return;
+    if (setupMode === 'switch') { setupMode = 'new'; renderSetup(); return; }
+    setupMode = 'switch'; sel.agent = s.agent; sel.model[s.agent] = s.model; sel.effort[s.agent] = s.effort; renderSetup(); $('#sel-model').focus();
+  };
+  $('#setup-cancel').onclick = () => { setupMode = 'new'; renderSetup(); };
+  $('#setup-apply').onclick = async () => {
+    const s = cur(); if (!s) return; const c = currentSel();
+    const to = `${AGENT_KO[c.agent]} ${$('#sel-model').selectedOptions[0]?.textContent} · ${c.effort}`;
+    const cross = c.agent !== s.agent;
+    if (!cross && !s.sessionId) { await Dialog.alert('첫 메시지를 보낸 뒤에 바꿀 수 있습니다.'); return; }
+    const msg = cross
+      ? `${AGENT_KO[s.agent]} → ${to}\n\n다른 에이전트라 같은 세션을 그대로 잇지는 못하고, 지금까지의 대화를 글로 묶어 새 ${AGENT_KO[c.agent]} 세션의 첫 요청으로 넘깁니다(최근 8천 자). 계속할까요?`
+      : `${to}으로 같은 대화를 다시 엽니다(현재 프로세스 종료). 계속할까요?`;
+    if (!(await Dialog.confirm(msg, { okLabel: '계속' }))) return;
+    try {
+      await api('POST', `/api/sessions/${s.id}/switch`, { agent: c.agent, model: c.model, expectModel: expectOf(c), effort: c.effort, permission: c.permission, approval: c.approval, sandbox: c.sandbox });
+      setupMode = 'new'; renderSetup(); if (cross) { Transcript.clear(); setTimeout(() => loadTranscript(s.id), 1500); }
+    } catch (e) { Dialog.alert(e.message); }
+  };
+
+  // ---------- 연결 ----------
+  function connect() {
+    ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onopen = () => { $('#link-dot').className = 'link-dot ok'; send({ type: 'profile', token: Profile.token() }); if (current && current !== 'preview') attach(current); };
+    ws.onclose = () => { $('#link-dot').className = 'link-dot bad'; setTimeout(connect, 1500); };
+    ws.onmessage = (ev) => {
+      const m = JSON.parse(ev.data);
+      if (m.type === 'hello') { sessions = visibleOnly(m.sessions); if (m.subs) for (const [id, l] of Object.entries(m.subs)) SubPanel.setList(id, l); bgMap.clear(); if (m.bg) for (const [id, l] of Object.entries(m.bg)) bgMap.set(id, l); if (Array.isArray(m.modules)) setModules(m.modules); if (m.update) Settings.setUpdate(m.update); if (m.updateResult) Settings.showUpdateResult(m.updateResult); renderSetup(m.setup); Handoff.apply(m.handoff); applyLeadAgent(m.handoff); Tutorial.maybeOpen(m.handoff); if (m.mem) MemGauge.onSample(m.mem); if (m.auth) Settings.setAuth(m.auth); render(); }
+      else if (m.type === 'shutdown') showQuitting();                                                       // 전부 종료 시작(v2.97) — 어느 창·탭이 시작했든 「종료하는 중」
+      else if (m.type === 'mem') MemGauge.onSample(m.s);                                                    // 메모리 계기판(v2.78): 2초마다 실제 RAM·커밋
+      else if (m.type === 'setup') renderSetup(m.progress);                                                // 세팅 진행 막대(v2.65)
+      else if (m.type === 'handoff') { Handoff.apply(m); Tutorial.maybeOpen(m); }                                                     // 인수 안내 카드(설치 패키지 v2, Task 21)
+      else if (m.type === 'auth') Settings.onAuth(m);                                                      // 인증(v2.84): 열쇠 만료 상태·갱신 진행
+      else if (m.type === 'update') Settings.onUpdate(m);                                                  // 업데이트(v2.58): 확인 결과·내려받기 진행
+      else if (m.type === 'finalize') {                                                                   // 세팅 마무리 자동 실행(v2.60): 시작·결과 토스트
+        if (m.phase === 'start') Notify.push({ title: '세팅 마무리를 시작합니다', sub: '세션을 잠시 닫고 마무리 절차를 돌린 뒤 같은 자리에서 이어 엽니다. 복구 문구 창이 뜨면 안내대로 적어 두세요.', status: 'busy', force: true });
+        else if (m.phase === 'ready') Notify.push({ title: '세팅 마무리 완료', sub: '세션을 이어 열었습니다. 비서가 나머지 검사와 보고를 계속합니다.', status: 'idle', force: true });
+        else if (m.phase === 'pending') Notify.push({ title: '세팅 마무리가 아직 남았습니다', sub: (m.result?.explanation || '') + ' — 10분 뒤 다시 시도합니다.', status: 'attention', force: true });
+        else if (m.phase === 'error' || m.phase === 'resume-failed') Notify.push({ title: '세팅 마무리 오류', sub: m.error || '', status: 'attention', force: true });
+      }
+      else if (m.type === 'modules') setModules(m.list);                                                   // 모듈 콘센트: 상태·panel·배지
+      else if (m.type === 'tools') window.ToolsView?.onTools(m);                                          // 도구 설치·제거 진행(판 B, 2026-11-10)
+      else if (m.type === 'module-notify') Notify.external({ id: `mod:${m.module}:${m.target || ''}`, title: m.title, sub: m.sub });
+      else if (m.type === 'subagents') SubPanel.setList(m.id, m.list);        // 보조 작업 목록(칩·⁺N·서랍 탭, 2026-09-11)
+      else if (m.type === 'subtranscript') SubPanel.onTranscript(m);          // 서랍이 보고 있는 보조의 기록
+      else if (m.type === 'bg') { bgMap.set(m.id, Array.isArray(m.list) ? m.list : []); render(); Notify.onSubs(m.id, liveN(m.id), SubPanel.list(m.id).length, sessions.find(x => x.id === m.id)); } // 배경 작업(v2.80)
+      else if (m.type === 'sessions') { sessions = visibleOnly(m.list); render(); }
+      else if (m.type === 'status') { const s = sessions.find(x => x.id === m.id); if (s) { s.status = m.status; render(); if (m.id === current) Transcript.setBusy(m.status === 'busy'); Notify.onStatus(m, s, liveN(m.id)); } }
+      else if (m.type === 'replay') { if (m.id === current && term) { term.reset(); term.write(m.data); } }
+      else if (m.type === 'output') { if (m.id === current && term) term.write(m.data); }
+      else if (m.type === 'transcript') { if (m.id === current) { if (m.reset) Transcript.render(m.items, m.meta); else Transcript.append(m.items, m.meta); afterTranscript(m.meta); Canvas.onItems(m.id, m.items, !!m.reset, cur()?.cwd); } }
+      else if (m.type === 'activity') { if (m.id === current) { const s = cur(); if (s?.status === 'busy') Transcript.setBusy(true, m.text); } }
+      else if (m.type === 'prompt') { const s = sessions.find(x => x.id === m.id); if (s) { s.prompt = m.prompt; if (m.id === current) Approval.render(s); } } // 확인 카드(v2.43): 노란불의 질문·선택지
+      else if (m.type === 'agents') { AGENTS = m.agents; if (m.status) ACCT = m.status; renderSetup(); flushLead(); } // v2.76: 계정 수·프로그램 없음이 바뀜 → 버튼 옆 안내 다시 그림
+    };
+  }
+  const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+
+  // ---------- 그리기 ----------
+  // 작업목록 순서: 사용자가 끌어서 정한 순서(localStorage 'iris.order' = id 배열). 모르는 세션(새 세션)은 데몬 순서대로 뒤에 붙는다.
+  // sessions 배열 자체를 정렬해 두므로 Ctrl+1~9 번호와 화면 순서가 같다.
+  const ORDER_KEY = 'iris.order';
+  const loadOrder = () => { try { const a = JSON.parse(localStorage.getItem(ORDER_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+  const saveOrder = () => { try { localStorage.setItem(ORDER_KEY, JSON.stringify(sessions.map(s => s.id))); } catch {} };
+  function sortSessions() {
+    const order = loadOrder(); if (!order.length) return;
+    const rank = new Map(order.map((id, i) => [id, i]));
+    sessions = sessions.map((s, i) => ({ s, k: rank.has(s.id) ? rank.get(s.id) : order.length + i })).sort((a, b) => a.k - b.k).map(x => x.s);
+  }
+  let dragId = null;
+  function moveSession(fromId, toId, after) {
+    if (!fromId || !toId || fromId === toId) return;
+    const from = sessions.findIndex(s => s.id === fromId); if (from < 0) return;
+    const [rec] = sessions.splice(from, 1);
+    let to = sessions.findIndex(s => s.id === toId); if (to < 0) { sessions.splice(from, 0, rec); return; }
+    if (after) to += 1;
+    sessions.splice(to, 0, rec); saveOrder(); render();
+  }
+  function render() {
+    sortSessions();
+    const list = $('#session-list');
+    if (!renaming) { list.innerHTML = ''; // 이름을 고치는 동안은 목록을 다시 그리지 않는다(상태 방송마다 입력칸이 날아가지 않게, v2.85)
+    sessions.forEach((s, i) => {
+      const li = document.createElement('li'); li.className = 'srow' + (s.id === current ? ' active' : ''); li.dataset.id = s.id; li.draggable = true;
+      li.innerHTML = `<span class="dot ${viewStatus(s)}" title="${statusText(s)}"></span>
+        <span class="sname" title="${esc(`${s.title || shortPath(s.cwd)}\n(두 번 클릭 · F2 = 이름 바꾸기)`)}"><span class="stitle">${esc(s.title || shortPath(s.cwd))}</span>${liveN(s.id) ? `<span class="subn${SubPanel.running(s.id) || bgN(s.id) ? '' : ' quiet'}" title="${esc([`살아 있는 보조 작업 ${SubPanel.alive(s.id)}개(실행 중 ${SubPanel.running(s.id)}) · 배경 작업 ${bgN(s.id)}개`, ...bgLines(s.id)].join('\n'))}">⁺${liveN(s.id)}</span>` : ''}</span><span class="sside"><span class="sidx">${i + 1}</span><button class="srename" title="이름 바꾸기 (F2)" aria-label="이름 바꾸기">${Icons.svg('pencil', 14)}</button></span>
+        <span class="smeta"><span class="chip ${s.agent}">${AGENT_KO[s.agent]}</span> ${s.title ? `<span class="sfold" title="${esc(s.cwd)}">${esc(shortPath(s.cwd))}</span> · ` : ''}${esc(s.modelLabel || s.model)} · ${esc(s.effort)}${permText(s) ? ' · ' + esc(permText(s)) : ''} · ${statusText(s)}</span>`;
+      li.onclick = () => { if (s.id === current && setupMode === 'new') return; select(s.id); }; // 이미 보는 줄은 다시 그리지 않는다 — 두 번 클릭의 둘째 클릭이 사라진 줄에 떨어지지 않게(v2.85)
+      li.querySelector('.srename').onclick = (e) => { e.stopPropagation(); startRename(s.id, li.querySelector('.stitle')); }; // 연필(v2.86) = 선택하지 않고 그 자리에서 고친다
+      // 끌어서 순서 바꾸기(HTML5 DnD): 놓는 위치는 대상 행의 위/아래 절반으로 판단
+      li.ondragstart = (e) => { dragId = s.id; li.classList.add('dragging'); try { e.dataTransfer.setData('text/plain', s.id); e.dataTransfer.effectAllowed = 'move'; } catch {} };
+      li.ondragend = () => { dragId = null; list.querySelectorAll('.srow').forEach(r => r.classList.remove('dragging', 'drop-before', 'drop-after')); };
+      li.ondragover = (e) => { if (!dragId || dragId === s.id) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; const r = li.getBoundingClientRect(); const after = e.clientY > r.top + r.height / 2; li.classList.toggle('drop-before', !after); li.classList.toggle('drop-after', after); };
+      li.ondragleave = () => li.classList.remove('drop-before', 'drop-after');
+      li.ondrop = (e) => { if (!dragId) return; e.preventDefault(); const r = li.getBoundingClientRect(); moveSession(dragId, s.id, e.clientY > r.top + r.height / 2); dragId = null; };
+      list.appendChild(li);
+    }); }
+    $('#rail-count').textContent = sessions.length ? `${sessions.length}` : '';
+    if (current && current !== 'preview' && !cur()) current = null;
+    $('#view').hidden = !current;
+    IrisStars.setDim(!!current);
+    IrisStars.setEnergy(sessions.some(s => s.status === 'busy' || viewStatus(s) === 'delegated') ? 0.7 : 0);
+    renderComposer(); renderSetup();
+    if (current && current !== 'preview') renderHead();
+  }
+  function renderHead() {
+    const s = cur(); if (!s) return;
+    $('#vh-dot').className = 'dot ' + viewStatus(s);
+    if (!renaming) { $('#vh-title').textContent = s.title || shortPath(s.cwd); $('#vh-title').title = `${s.title ? `${s.title}\n${s.cwd}` : s.cwd}\n(누르면 이름 바꾸기 · F2)`; }
+    $('#vh-combo').textContent = `${s.title ? shortPath(s.cwd) + ' · ' : ''}${label(s)} · ${statusText(s)}`; $('#vh-combo').title = [$('#vh-combo').textContent, s.cwd, s.cmdline || '', ...bgLines(s.id)].join('\n'); // 첫 줄 = 말줄임 전 전체 글(v2.82)
+    if (s.status !== 'busy') $('#activity').hidden = true;
+    const dead = s.status === 'dead' || s.status === 'exited' || s.status === 'orphan';
+    $('#dead-bar').hidden = !dead; $('#dead-resume').textContent = s.resumeCmd || '(재개 명령 없음)';
+    // 곧바로 끝난 까닭(v2.98): 데몬이 화면 마지막 줄에서 고른 원인. 글로만 넣는다(HTML 아님).
+    $('#dead-reason').hidden = !(dead && s.exitReason); $('#dead-reason').textContent = dead && s.exitReason ? `원인: ${s.exitReason}` : '';
+    $('#btn-close').title = dead ? '기록 지우기' : '이 세션 종료(PID 기준)';
+    Approval.render(s); // 노란불 + prompt 있을 때만 카드가 보인다(상태가 바뀌면 함께 내려감)
+  }
+  // 배경 작업은 파란 도는 고리 + ⁺N·머리 툴팁으로만 보인다 — 대화 아래 띠(v2.81)는 v2.81.2 에서 사용자 요청으로 뺐다.
+  setInterval(() => { const s = cur(); if (s && bgN(s.id)) { renderHead(); } }, 30000); // 툴팁의 'N분째'를 30초마다 새로
+  function renderComposer() {
+    const s = cur(); const fb = $('#btn-folder'); const fn = $('#folder-name'); const ta = $('#composer-text');
+    if (s) { fb.className = 'folder-btn locked'; fn.textContent = shortPath(s.cwd); fb.title = `이 세션의 폴더: ${s.cwd} — 누르면 다른 폴더에서 새 요청`; ta.placeholder = ''; }
+    else if (folder) { fb.className = 'folder-btn picked'; fn.textContent = folder.name; fb.title = folder.path; ta.placeholder = ''; }
+    else { fb.className = 'folder-btn'; fn.textContent = '폴더'; fb.title = '폴더 고르기 (Ctrl+O)'; ta.placeholder = '폴더를 고르고 요청을 적어 주세요'; }
+  }
+
+  // ---------- 세션 이름 바꾸기(v2.85): 사이드바 이름·머리 제목 두 번 클릭 → 그 자리 입력칸 ----------
+  // Enter = 저장 · Esc·바깥 클릭 = 취소 · 빈칸 저장 = 자동 이름으로 되돌림. 저장은 데몬(source=user)이 하므로 자동 이름이 덮지 않는다.
+  // 입력칸의 키는 문서로 올려 보내지 않는다(확인 카드 1~9·단축키가 먹지 않게). Esc 는 Electron 중계로도 오므로 onEscape() 맨 앞에서도 취소만 한다.
+  function startRename(id, host) {
+    const s = sessions.find(x => x.id === id); if (!s || !host || renaming) return;
+    const row = host.closest('.srow'); if (row) row.draggable = false; // 고치는 동안은 끌어서 순서 바꾸기를 끈다(글자 선택 가능)
+    const input = document.createElement('input');
+    input.className = 'rename-in'; input.maxLength = 48; input.spellcheck = false; input.autocomplete = 'off';
+    input.value = s.title || ''; input.placeholder = '빈칸 = 자동 이름';
+    let done = false;
+    const finish = async (save) => {
+      if (done) return; done = true; renaming = null;
+      const v = input.value.replace(/\s+/g, ' ').trim();
+      if (save && v !== (s.title || '')) {
+        try {
+          const r = await fetch(`/api/sessions/${id}/title`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...Profile.headers() }, body: JSON.stringify({ title: v }) });
+          const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.statusText);
+          const t = sessions.find(x => x.id === id); if (t) { t.title = j.title; t.titleSource = j.titleSource; }
+        } catch (e) { Dialog.alert('이름을 바꾸지 못했습니다: ' + e.message); }
+      }
+      render();
+    };
+    renaming = { id, cancel: () => finish(false) };
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.isComposing || e.keyCode === 229) return; // 한글 조합 중 Enter 는 조합 확정용
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); lastEscAt = Date.now(); finish(false); } // 곧 올 Electron 중계 Esc 가 작업 중단으로 새지 않게
+    });
+    input.addEventListener('blur', () => finish(false));
+    for (const ev of ['click', 'dblclick', 'mousedown']) input.addEventListener(ev, (e) => e.stopPropagation()); // 줄 클릭(세션 선택)으로 번지지 않게
+    host.replaceChildren(input); input.focus(); input.select();
+  }
+  $('#session-list').addEventListener('dblclick', (e) => {
+    const row = e.target.closest('.srow'); if (!row || !e.target.closest('.sname')) return;
+    e.preventDefault(); startRename(row.dataset.id, row.querySelector('.stitle'));
+  });
+  // 머리 제목(v2.86): 한 번 클릭·연필로도 고친다(두 번 클릭은 첫 클릭에서 이미 열림). 입력칸은 제목 자리에만 — 연필은 CSS 로 숨는다.
+  const renameHead = (e) => { if (current && current !== 'preview') { e.preventDefault(); startRename(current, $('#vh-title')); } };
+  $('#vh-title').addEventListener('click', renameHead);
+  $('#vh-rename').addEventListener('click', renameHead);
+  // F2(v2.86, 윈도 탐색기와 같은 키): 보고 있는 세션 이름 — 사이드바 줄이 보이면 거기서, 사이드바를 접었으면 머리 제목에서.
+  // 대화 보기에서만 — 터미널 보기의 F2 는 xterm 이 CLI 로 보낸다.
+  function renameCurrentByKey() {
+    if (!current || current === 'preview' || renaming || mode !== 'chat') return false;
+    const t = $(`#session-list .srow[data-id="${current}"] .stitle`); // 접힌 사이드바는 줄(점)만 남고 이름이 숨으므로 이름 칸이 보이는지로 고른다
+    startRename(current, t && t.offsetParent ? t : $('#vh-title')); return true;
+  }
+
+  // ---------- 세션 선택 / 새 요청 모드 ----------
+  function select(id) { current = id; setupMode = 'new'; Canvas.onSession(id, sessions.find(x => x.id === id)?.cwd); ensureTerm(); render(); attach(id); SubPanel.onSession(id); if (mode === 'term') term.focus(); else $('#composer-text').focus(); }
+  function goHome() { current = null; setupMode = 'new'; Canvas.onSession(null); send({ type: 'detach' }); SubPanel.onSession(null); Transcript.clear(); Approval.render(null); render(); $('#composer-text').focus(); }
+  function attach(id) { send({ type: 'attach', id }); setTimeout(doFit, 50); loadTranscript(id); }
+  async function loadTranscript(id) {
+    Transcript.clear(); $('#vh-usage').textContent = ''; $('#vh-mwarn').hidden = true; $('#activity').hidden = true;
+    try { const j = await api('GET', `/api/sessions/${id}/transcript`); if (id !== current) return; Transcript.render(j.items || [], j.meta); Transcript.setBusy(cur()?.status === 'busy'); afterTranscript(j.meta); Canvas.onItems(id, j.items || [], true, cur()?.cwd); } catch (e) { console.warn('transcript', e); }
+  }
+  // 컨텍스트 사용률 = 마지막 요청의 입력 토큰 ÷ 컨텍스트 창(코덱스는 기록값, 클로드는 모델 추정)
+  // 🔴 모델 이름 = 실제 모델(v2.102, 사용자 지정): 세션 기록의 실제 응답 모델이 고른 모델과 다르면 머리에 경고.
+  // 기대값 = 데몬이 CLI 에 넘긴 정확한 이름(modelActual). 그 전 판 세션은 표시 이름(「Fable 5.1」)에서 만든다.
+  // 고른 순간 화면에 보이던 모델의 정확한 이름 — 데몬이 그 사이 목록이 바뀌었으면(자동 업데이트) 실행하지 않고 다시 고르게 한다(v2.102 코덱스 검토 3번)
+  const expectOf = (c) => AGENTS[c.agent]?.models?.find((m) => m.id === c.model)?.actual ?? null;
+  const normModel = (x) => String(x || '').toLowerCase().replace(/\[1m\]$/, '').replace(/-\d{8}$/, '');
+  function expectedModel(s) {
+    if (!s) return null;
+    if (s.modelActual) return s.modelActual;
+    if (s.agent === 'codex') return s.model || null;
+    const m = String(s.modelLabel || '').match(/^(Opus|Sonnet|Fable|Haiku) (\d+(?:\.\d+)?)/);
+    return m ? `claude-${m[1].toLowerCase()}-${m[2].replace('.', '-')}` : null;
+  }
+  function checkModel(meta) {
+    const el = $('#vh-mwarn'), s = cur(), act = meta?.model, exp = expectedModel(s);
+    const bad = !!(exp && act && act !== '<synthetic>' && normModel(exp) !== normModel(act));
+    el.hidden = !bad;
+    if (bad) { el.textContent = `모델 불일치 · 실제 ${act}`; el.title = `고른 모델: ${s.modelLabel || s.model} (${exp})\n실제 응답한 모델: ${act}\n\nIRIS 가 보여 준 이름과 실제 모델이 다릅니다. 새 세션을 열면 그 PC 의 실제 모델 이름으로 다시 맞춰집니다.`; }
+  }
+  function afterTranscript(meta) {
+    checkModel(meta);
+    const u = meta?.usage, w = meta?.window; const el = $('#vh-usage');
+    if (!u) { el.textContent = ''; return; }
+    const pct = w ? Math.min(100, Math.round(u.in / w * 100)) : null;
+    el.textContent = pct == null ? `입력 ${fmtK(u.in)}` : `컨텍스트 ${pct}%`;
+    el.title = `${meta.model || ''} · 마지막 입력 ${fmtK(u.in)} 토큰 / 창 ${w ? fmtK(w) : '?'} · 출력 ${fmtK(u.out)}`;
+    el.classList.toggle('warn', pct != null && pct >= 70); el.classList.toggle('bad', pct != null && pct >= 90);
+  }
+  const fmtK = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1) + 'k' : String(n || 0);
+
+  // ---------- 터미널 ----------
+  function ensureTerm() {
+    if (term) return;
+    term = new Terminal({ fontFamily: '"Cascadia Code", "Cascadia Mono", "D2Coding", Consolas, monospace', fontSize: 13, theme: { background: '#070910' }, cursorBlink: true, allowProposedApi: true, scrollback: 5000 });
+    fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open($('#term'));
+    term.onData((d) => { if (current) send({ type: 'input', id: current, data: d }); });
+    new ResizeObserver(() => doFit()).observe($('#term-wrap'));
+  }
+  function doFit() { if (!term || !current || mode !== 'term') return; try { fit.fit(); send({ type: 'resize', id: current, cols: term.cols, rows: term.rows }); } catch {} }
+  function setMode(m) {
+    mode = m; $('#view').dataset.mode = m; $('#term-wrap').hidden = m !== 'term';
+    $('#btn-mode-chat').classList.toggle('active', m === 'chat'); $('#btn-mode-term').classList.toggle('active', m === 'term');
+    if (m === 'term') setTimeout(() => { doFit(); term?.focus(); }, 30); else $('#composer-text').focus();
+  }
+  $('#btn-mode-chat').onclick = () => setMode('chat'); $('#btn-mode-term').onclick = () => setMode('term');
+
+  // ---------- 폴더 ----------
+  FolderPicker.init({ onPick: (f) => { folder = { path: f.path, rel: f.rel, name: f.name }; if (current) { current = null; setupMode = 'new'; send({ type: 'detach' }); Transcript.clear(); } render(); $('#composer-text').focus(); } });
+  const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const relOf = (p) => {
+    const root = Settings.health()?.root;
+    if (!root) return p;
+    const pattern = '^' + root.split(/[\\/]/).filter(Boolean).map(escRe).join('[\\\\/]') + '[\\\\/]?';
+    return p.replace(new RegExp(pattern, 'i'), '');
+  };
+  $('#btn-folder').onclick = () => FolderPicker.toggle(cur() ? relOf(cur().cwd) : folder?.rel);
+
+  // ---------- 첨부: 사진·파일(업로드 → 경로 삽입) · 카메라 · 음성(준비 중) ----------
+  const attachments = [];
+  function renderAttach() { $('#attach-list').innerHTML = attachments.map((a, i) => `<span class="attach"><code title="${esc(a.path)}">${esc(a.name)}</code><button data-i="${i}" title="빼기">✕</button></span>`).join(''); }
+  $('#attach-list').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { attachments.splice(Number(b.dataset.i), 1); renderAttach(); } });
+  async function upload(file, name) {
+    const r = await fetch('/api/upload', { method: 'POST', headers: { 'x-file-name': encodeURIComponent(name || file.name) }, body: file });
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText);
+    attachments.push({ name: name || file.name, path: j.path }); renderAttach();
+  }
+  $('#btn-photo').onclick = () => $('#file-in').click();
+  $('#btn-file').onclick = () => $('#file-any').click();
+  const UPLOAD_MAX = 50 * 1024 * 1024; // 데몬 /api/upload 한도와 같다
+  async function uploadAll(files) {
+    for (const f of files) {
+      if (f.size > UPLOAD_MAX) { await Dialog.alert(`50MB를 넘는 파일은 첨부할 수 없습니다: ${f.name}`); continue; }
+      try { await upload(f); } catch (err) { await Dialog.alert(err.message); }
+    }
+  }
+  for (const id of ['#file-in', '#file-any']) $(id).addEventListener('change', async (e) => { await uploadAll([...e.target.files]); e.target.value = ''; });
+  // 끌어다 놓기 첨부(v2.85): 창 어디에 놓든 버튼 첨부와 같은 길(uploadAll)로 들어간다.
+  // 'Files' 가 실린 끌기만 받는다 — 사이드바 줄 순서 바꾸기(창 안 끌기)는 여기서 무시된다.
+  // Electron 은 놓은 파일을 막지 않으면 창 전체를 그 파일로 이동(file://)해 버리므로 기본 동작을 문서 단계에서 항상 막는다.
+  // 안내 막(#drop-hint)은 창 전체를 덮어 미리보기 iframe 이 놓기를 가로채지 못하게 하고, dragover 가 250ms 끊기면 내린다(dragleave 짝 세기보다 튼튼).
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  let dropHideTimer = 0;
+  const dropHint = (on) => { clearTimeout(dropHideTimer); if (on) { $('#drop-hint').hidden = false; dropHideTimer = setTimeout(() => dropHint(false), 250); } else $('#drop-hint').hidden = true; };
+  for (const ev of ['dragenter', 'dragover']) document.addEventListener(ev, (e) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; dropHint(true); });
+  document.addEventListener('drop', async (e) => {
+    if (!hasFiles(e)) return; e.preventDefault(); dropHint(false);
+    // DataTransfer 는 이 처리기가 끝나면 비워지므로 파일·폴더 구분을 먼저 동기로 뽑아 둔다
+    const picked = [...(e.dataTransfer.items || [])].filter(it => it.kind === 'file').map(it => ({ file: it.getAsFile(), dir: !!it.webkitGetAsEntry?.()?.isDirectory })).filter(x => x.file);
+    const dirs = picked.filter(x => x.dir).map(x => x.file.name);
+    if (dirs.length) await Dialog.alert(`폴더는 첨부할 수 없습니다(파일만 가능): ${dirs.join(', ')}`);
+    await uploadAll(picked.filter(x => !x.dir).map(x => x.file));
+    if (mode === 'chat') $('#composer-text').focus();
+  });
+  // 붙여넣기 첨부(Ctrl+V): 클립보드에 글 없이 파일·그림만 있을 때(화면 캡처, 복사한 그림)만 끌어다 놓기와 같은 uploadAll 로 보낸다.
+  // 글이 함께 실리면(엑셀 칸 복사 = 글 + 칸 그림) 평소 붙여넣기 그대로. 터미널 보기(xterm·CLI 의 붙여넣기)와 한 줄 입력칸(이름 바꾸기 등)은 건드리지 않는다.
+  // 캡처 그림은 늘 image.png 로 오고 데몬 저장 이름은 초 단위라, 같은 초에 두 번 붙여도 겹치지 않게 밀리초까지 붙인 이름으로 바꾼다.
+  document.addEventListener('paste', async (e) => {
+    const cd = e.clipboardData, files = [...(cd?.files || [])];
+    if (!files.length || cd.getData('text/plain') || e.target.closest?.('#term-wrap') || e.target.tagName === 'INPUT') return;
+    e.preventDefault();
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 19).replace('.', '-'); // 20261105-053012-345
+    await uploadAll(files.map((f, i) => /^image\.\w+$/i.test(f.name) ? new File([f], `paste-${stamp}${files.length > 1 ? `-${i + 1}` : ''}.${f.name.split('.').pop()}`, { type: f.type }) : f));
+    if (mode === 'chat') $('#composer-text').focus();
+  });
+  let camStream = null;
+  $('#btn-cam').onclick = async () => { try { camStream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: false }); $('#cam-video').srcObject = camStream; $('#cam').hidden = false; } catch (err) { Dialog.alert('카메라를 열 수 없습니다: ' + err.message); } };
+  function camStop() { camStream?.getTracks().forEach(t => t.stop()); camStream = null; $('#cam').hidden = true; }
+  $('#cam-cancel').onclick = camStop;
+  $('#cam-shot').onclick = async () => {
+    const v = $('#cam-video'); const c = document.createElement('canvas'); c.width = v.videoWidth || 1280; c.height = v.videoHeight || 720; c.getContext('2d').drawImage(v, 0, 0);
+    const blob = await new Promise(r => c.toBlob(r, 'image/png')); camStop();
+    try { await upload(blob, `camera-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`); } catch (err) { Dialog.alert(err.message); }
+  };
+  // 🎤 음성 입력(app/voice.js): 녹음 → 데몬 로컬 위스퍼 → 글이 입력창에 들어옴(자동 전송 없음). 녹음·전사 중엔 보내기 잠금.
+  Voice.init({ textarea: $('#composer-text'), button: $('#btn-mic'), strip: $('#voice-strip'), folderHint: () => shortPath(cur()?.cwd || folder?.path || ''), onBusy: (b) => { $('#btn-send').disabled = b; } });
+  const withAttachments = (text) => attachments.length ? `${text}\n\n[첨부 파일]\n${attachments.map(a => a.path).join('\n')}` : text;
+
+  // ---------- 오른쪽 서랍(대시보드·모듈 화면 공용) ----------
+  // 서랍은 하나, 안에 무엇을 보일지는 key 로 구분: 'dash' = TeamClaude 대시보드(선택 기능), 'mod:<이름>' = 모듈 화면(계약 v1 panel 주소).
+  // 대시보드는 도구가 있는 PC에서만(features.dashboard). 모듈 버튼은 데몬이 준 목록(features.modules / ws modules)에서만 생긴다.
+  let DASH_URL = 'http://127.0.0.1:3457/';
+  let dashEnabled = true;
+  let modules = [];                 // ModuleInfo[] — 데몬이 준 그대로
+  let drawerKey = null;             // 지금 서랍이 보여 주는 것
+  let railAutoHidden = false;       // 모듈 서랍이 작업목록을 대신 접었는가(v2.57, 2026-09-13 사용자 결정: 모듈 화면과 작업목록이 이중으로 보이지 않게)
+  const PANEL_RE = /^http:\/\/127\.0\.0\.1:\d+\//;  // 모듈이 준 panel 주소는 로컬 127.0.0.1 뿐이어야 신뢰(콘센트가 신뢰 못 할 값을 줄 수 있음)
+  const fr = $('#dash-frame');
+  fetch('/api/health').then(r => r.json()).then((h) => {
+    const f = h?.features; if (!f) return;
+    MemGauge.setFeatures(f.memory);
+    if (f.dashPort) DASH_URL = `http://127.0.0.1:${f.dashPort}/`;
+    if (f.dashboard === false) { dashEnabled = false; $('#limits').hidden = true; if (drawerKey === 'dash') closeDrawer(); }
+    if (Array.isArray(f.modules)) setModules(f.modules);
+  }).catch(() => {});
+  async function ensureDash() {
+    try { const r = await fetch('/api/dash/ensure', { method: 'POST' }); const d = await r.json().catch(() => ({})); return { alive: r.ok, started: !!d.started, port: d.port }; }
+    catch { return { alive: null, started: false }; }
+  }
+  const dashUrl = (port) => port ? `http://127.0.0.1:${port}/` : DASH_URL;
+  async function loadDash(force) { const d = await ensureDash(); if (force || d.started || !fr.src || fr.src === 'about:blank') fr.src = dashUrl(d.port); }
+  let drawerCloseTimer = 0;
+  function openDrawer(key, { title, url, ext = true }) {
+    // 서랍은 한 번에 하나(v2.96.2, 2026-10-27 사용자 신고): 설정 서랍(z 21)이 열려 있으면 대시보드·모듈 서랍(z 20)이 그 밑에 깔려 안 바뀐 것처럼 보였다
+    if (Settings.isOpen()) Settings.hide();
+    const d = $('#dash'); clearTimeout(drawerCloseTimer);
+    const switched = drawerKey !== key;
+    if (switched) { fr.src = 'about:blank'; }
+    drawerKey = key; $('#dash-title').textContent = title; $('#dash-ext').hidden = !ext;
+    $('#limits').classList.toggle('active', key === 'dash');
+    for (const b of $('#mod-btns').querySelectorAll('.mod-btn')) b.classList.toggle('active', key === `mod:${b.dataset.mod}`);
+    d.hidden = false; requestAnimationFrame(() => requestAnimationFrame(() => d.classList.add('open')));
+    // 모듈 서랍(mod:*)은 작업목록을 접고 연다. 사용자가 이미 접어 둔 것이면 손대지 않고(닫을 때도 그대로), 우리가 접은 것만 닫을 때 되돌린다.
+    if (key.startsWith('mod:') && !$('#app').classList.contains('rail-hidden')) { $('#app').classList.add('rail-hidden'); railAutoHidden = true; }
+    if (key === 'dash') loadDash(switched); else if (url && (switched || fr.src !== url)) loadFrame(url);
+  }
+  // 모듈 화면 넣기 + 빈 서랍 지킴이(v2.56.1): src 를 넣고도 load 가 4초 안에 안 오면(모듈 프로세스가 방금 다시 떠서 첫 연결이
+  // 끊긴 경우 등) 한 번 더 넣는다. 그래도 안 뜨면 머리의 ↻ 가 남아 있다.
+  let frameWatch = 0;
+  function loadFrame(url) {
+    clearTimeout(frameWatch);
+    let loaded = false;
+    const onLoad = () => { loaded = true; fr.removeEventListener('load', onLoad); };
+    fr.addEventListener('load', onLoad);
+    fr.src = url;
+    frameWatch = setTimeout(() => { if (!loaded && !$('#dash').hidden && fr.src === url) { fr.src = 'about:blank'; requestAnimationFrame(() => { fr.src = url; }); } }, 4000);
+  }
+  function closeDrawer() {
+    const d = $('#dash'); if (d.hidden) return;
+    d.classList.remove('open'); $('#limits').classList.remove('active');
+    for (const b of $('#mod-btns').querySelectorAll('.mod-btn')) b.classList.remove('active');
+    drawerCloseTimer = setTimeout(() => { if (!d.classList.contains('open')) d.hidden = true; }, 360);
+    drawerKey = null; ta.focus();   // 서랍을 닫으면 초점은 반드시 입력창으로(iframe 초점 잔류 → "입력 불가" 재발 방지)
+    if (railAutoHidden) { railAutoHidden = false; $('#app').classList.remove('rail-hidden'); }   // 우리가 접은 작업목록만 다시 편다
+  }
+  const drawerOpenFor = (key) => !$('#dash').hidden && drawerKey === key;
+  function toggleDash(force) {
+    const open = force ?? !drawerOpenFor('dash');
+    if (open && !dashEnabled) return;   // 도구 없는 PC: Ctrl+D 도 조용히 무시
+    open ? openDrawer('dash', { title: 'TeamClaude 대시보드', url: DASH_URL }) : closeDrawer();
+  }
+  function openModule(name) {
+    const m = modules.find(x => x.name === name); if (!m || !m.panel || !PANEL_RE.test(m.panel)) return false;
+    drawerOpenFor(`mod:${name}`) ? closeDrawer() : openDrawer(`mod:${name}`, { title: m.label, url: m.panel, ext: false });
+    return true;
+  }
+  // ---- 헤더 모듈 버튼(v2.56, 2026-09-13 사용자 결정): 데몬이 주는 목록 = 공식 카탈로그 + 설치 여부 + 콘센트 상태 → 미설치 모듈도 항상 버튼이 있다. 세 상태:
+  //   absent(installed:false) = 흐림 + 오른쪽 아래 ↓ 점, 누르면 확인 → 설치(POST /api/catalog/:name/install) → 설치 중 고리 → 실행되면 서랍 자동 열림(pendingOpen, 60초 한도)
+  //   ready(실행 중 + 127.0.0.1 panel) = 전과 같음(배지, 서랍 열기)
+  //   off(설치됐지만 멈춤·실패·맞지 않음·동의 필요·panel 거부·아직 panel 없음) = 흐림 + ! 표(실행 중이 아닐 때), 누르면 설정 → 확장 모듈 절
+  // 아이콘은 module.json.icon 이름을 app/icons.js 에서 찾고(모르면 plug) 모듈이 준 문자열은 HTML 에 넣지 않는다(v2.52). 옛 데몬(⏻ 전)은 installed 없이 설치된 것만 주므로 그대로 installed 로 본다.
+  const MOD_STATUS_KO = { running: '실행 중', stopped: '멈춤', failed: '실패', incompatible: '맞지 않음', 'grade-unsupported': '동의 필요' };
+  const pendingOpen = new Map();    // name → timer: 헤더에서 설치한 모듈이 처음 실행되면 서랍을 연다
+  const isInstalling = (name) => { try { return !!window.Settings?.isInstalling?.(name); } catch { return false; } };
+  function modState(m) {
+    if (m.installed === false) return 'absent';
+    return (m.status === 'running' && !!m.panel && PANEL_RE.test(m.panel)) ? 'ready' : 'off';
+  }
+  function modTitle(m, state) {
+    if (isInstalling(m.name)) return `${m.label} · 설치 중…`;
+    if (state === 'absent') return `${m.label} · 미설치 — 누르면 설치`;
+    const head = `${m.label} v${m.version}${m.official ? ' · 공식' : ' · 비공식'}`;
+    if (state === 'ready') return head;
+    if (m.panel && !PANEL_RE.test(m.panel)) return `${head} · panel address rejected — 누르면 설정`;
+    if (m.status === 'running') return `${head} · 시작 중… — 누르면 설정`;
+    return `${head} · ${MOD_STATUS_KO[m.status] || m.status}${m.reason ? ': ' + m.reason : ''} — 누르면 설정`;
+  }
+  function setModules(list) {
+    modules = Array.isArray(list) ? list : [];
+    renderModules();
+    for (const [name, t] of pendingOpen) { const m = modules.find(x => x.name === name); if (m && modState(m) === 'ready') { clearTimeout(t); pendingOpen.delete(name); if (!drawerOpenFor(`mod:${name}`)) openModule(name); } }
+    if (drawerKey?.startsWith('mod:') && !modules.some(m => `mod:${m.name}` === drawerKey && m.panel && PANEL_RE.test(m.panel))) closeDrawer(); // 보던 모듈이 죽거나 panel 이 거부되면 서랍도 닫힘
+    try { window.Settings?.refreshModules?.(); } catch {}
+  }
+  function renderModules() {
+    const host = $('#mod-btns');
+    host.innerHTML = modules.map(m => {
+      const state = modState(m), busy = isInstalling(m.name);
+      const n = state === 'ready' ? (Number(m.badge) || 0) : 0;
+      const cls = ['mod-btn', 'icon-btn', state, busy ? 'installing' : '', state === 'off' && m.status !== 'running' ? 'warn' : '', drawerOpenFor(`mod:${m.name}`) ? 'active' : ''].filter(Boolean).join(' ');
+      return `<button class="${cls}" data-mod="${esc(m.name)}" ${busy ? 'disabled' : ''} title="${esc(modTitle(m, state))}">${Icons.svg(m.icon)}${n > 0 ? `<span class="mod-badge">${n > 99 ? '99+' : n}</span>` : ''}</button>`;
+    }).join('');
+    for (const b of host.querySelectorAll('.mod-btn')) b.onclick = () => modClick(b.dataset.mod);
+  }
+  function modClick(name) {
+    const m = modules.find(x => x.name === name); if (!m || isInstalling(name)) return;
+    const state = modState(m);
+    if (state === 'ready') openModule(name);
+    else if (state === 'absent') installModule(name);
+    else openSettingsModules();
+  }
+  function openSettingsModules() {
+    if (!Settings.isOpen()) Settings.show('mods'); else Settings.showPane('mods'); // v2.87: 설정은 묶음별로 보이므로 「확장 모듈」 묶음을 연다
+  }
+  async function installModule(name) {
+    const m = modules.find(x => x.name === name); if (!m || m.installed !== false || isInstalling(name)) return;
+    if (!(await Dialog.confirm(`${m.label}을(를) 설치할까요?\n최신 릴리스를 내려받아 서명을 확인한 뒤 설치합니다. 설치 뒤 자동으로 시작됩니다.`, { okLabel: '설치' }))) return;
+    clearTimeout(pendingOpen.get(name)); pendingOpen.set(name, setTimeout(() => pendingOpen.delete(name), 60000));
+    renderModules();
+    const ok = await (window.Settings?.installModule ? Settings.installModule(name) : installFallback(name));
+    if (!ok) { clearTimeout(pendingOpen.get(name)); pendingOpen.delete(name); }
+    renderModules();
+  }
+  async function installFallback(name) { // Settings 가 설치를 못 맡을 때만(같은 판이면 오지 않는 길). 실패 알림은 여기서.
+    try { const r = await fetch(`/api/catalog/${encodeURIComponent(name)}/install`, { method: 'POST' }); const d = await r.json().catch(() => ({})); if (!r.ok) { Dialog.alert(`설치 실패: ${d.error || r.status}`); return false; } return true; }
+    catch (e) { Dialog.alert(`설치 실패: ${e.message}`); return false; }
+  }
+  window.addEventListener('iris:mod-installing', renderModules); // 설정 화면에서 설치를 시작·끝냈을 때도 헤더 고리를 맞춘다
+  $('#limits').onclick = () => toggleDash(); $('#dash-close').onclick = () => closeDrawer();
+  $('#dash-reload').onclick = () => { if (drawerKey === 'dash') loadDash(true); else if (drawerKey) { const u = fr.src; fr.src = 'about:blank'; requestAnimationFrame(() => { fr.src = u; }); } };
+  $('#dash-ext').onclick = () => { if (drawerKey === 'dash') window.open(fr.src || DASH_URL, '_blank'); };
+
+  // ---------- 보내기: 세션이 있으면 그 세션으로, 없으면 고른 폴더·조합으로 새 세션 ----------
+  const ta = $('#composer-text');
+  ta.addEventListener('input', autoGrow);
+  function autoGrow() { ta.style.height = 'auto'; ta.style.height = Math.min(190, ta.scrollHeight) + 'px'; }
+  async function submit() {
+    const typed = ta.value.replace(/\r\n/g, '\n').trim();
+    const text = withAttachments(typed); if (!text.trim()) return;
+    const btn = $('#btn-send'); if (btn.disabled) return;
+    const s = cur();
+    // 공유 계정 내 몫(P18 — 사용자 결정: 계정 사용률 ÷ 인원, 넘으면 보내기 전 확인 · 막지 않음)
+    const ms = LocalUse.status(s?.agent || currentSel().agent);
+    if (ms.over && !(await Dialog.confirm('', { title: '내 몫을 넘었어요', html: `<p>이 계정을 <b>${LocalUse.people()}명</b>이 나눠 쓰고 있어요. 한 사람 몫은 한도의 ${LocalUse.P(ms.quota)}인데, 이 PC 는 주간 <b>${LocalUse.P(ms.s.mineWeek)}</b> · 5시간 <b>${LocalUse.P(ms.s.mine5h)}</b>를 썼어요.</p><p>더 쓰면 다른 선생님들이 쓸 양이 줄어듭니다. 그래도 보낼까요?</p>`, okLabel: '그래도 보내기' }))) return;
+    try {
+      btn.disabled = true; btn.classList.add('busy');
+      History.push(typed);
+      if (s) {
+        const sent = await api('POST', `/api/sessions/${s.id}/send`, { text });
+        if (cur()?.id === s.id) Transcript.pend(text); // 터미널처럼 보낸 즉시 요청문 + "요청 전달 중"을 그린다(기록파일을 기다리지 않음)
+        // 끝난 대화였으면 데몬이 다시 열며 보냈다(P18) — 조용히 지나가지 않고 한 줄 알린다
+        if (sent?.resumed) Notify.push({ title: '끝난 대화를 다시 열었어요', sub: '보낸 글이 첫 요청으로 들어갑니다. 여는 데 몇 초 걸려요.', status: 'idle', force: true });
+      } else {
+        if (!folder) { FolderPicker.show(); return; }
+        const c = currentSel();
+        const rec = await api('POST', '/api/sessions', { cwd: folder.path, agent: c.agent, model: c.model, expectModel: expectOf(c), effort: c.effort, permission: c.permission, approval: c.approval, sandbox: c.sandbox, prompt: text });
+        select(rec.id);
+        Transcript.prime(text); // 기록파일이 생기기 전에도 요청문 + "세션 여는 중"을 바로 보여 준다(멈춘 것처럼 보이지 않게)
+      }
+      ta.value = ''; autoGrow(); attachments.length = 0; renderAttach();
+      setTimeout(() => LocalUse.refresh(true), 4000);
+    } catch (e) { Dialog.alert(e.message); }
+    finally { btn.disabled = false; btn.classList.remove('busy'); }
+  }
+  $('#btn-send').onclick = submit;
+  // ---------- 이 PC 사용량·공유 계정 「내 몫」(P18) ----------
+  // 혼자 쓰면(사람 수 1) 머리줄 = 「이 PC 오늘 N번」. 사람 수 N≥2 면 = 「내 몫 18% / 25%」(지금 고른 에이전트의 주간 몫,
+  // 계정 사용률 ÷ N — 데몬 share.mjs 가 이 PC 가 일하는 동안 늘어난 사용률을 쌓음). 80% 다가가면 노랑, 넘으면 빨강. 1분마다.
+  const LocalUse = (() => {
+    let last = null, share = null;
+    const fmt = (t) => t >= 1e6 ? (t / 1e6).toFixed(1) + 'M' : t >= 1e3 ? Math.round(t / 1e3) + 'K' : String(t);
+    const P = (v) => `${Math.round((v || 0) * 100)}%`;
+    const people = () => Math.max(1, Number(Settings.get().sharePeople) || 1);
+    const provOf = (agent) => (agent === 'codex' ? 'codex' : 'anthropic');
+    const agentNow = () => cur()?.agent || sel?.agent || 'claude';
+    /** 그 에이전트 계정에서 내 몫을 넘었나 → { over, week, h5, quota } (사람 수 1 이거나 측정값 없으면 over=false) */
+    function status(agent = agentNow()) {
+      const n = people(), s = share?.[provOf(agent)], quota = 1 / n;
+      if (n < 2 || !s) return { over: false, quota, s };
+      return { over: (s.mineWeek || 0) >= quota || (s.mine5h || 0) >= quota, quota, s, near: (s.mineWeek || 0) >= quota * 0.8 };
+    }
+    function draw() {
+      const el = $('#local-usage'); if (!el || !last) return;
+      const n = people(), st = status(), today = last.today.requests;
+      el.hidden = false;
+      el.classList.remove('over', 'near');
+      if (n >= 2 && st.s) {
+        el.textContent = `내 몫 ${P(st.s.mineWeek)} / ${P(st.quota)}`;
+        el.classList.toggle('over', st.over); el.classList.toggle('near', !st.over && st.near);
+      } else el.textContent = n >= 2 ? `내 몫 측정 준비 중 · 오늘 ${today}번` : `이 PC 오늘 ${today}번`;
+      const line = (name, s) => s ? `${name}: 내 몫 주간 ${P(s.mineWeek)} · 5시간 ${P(s.mine5h)} (계정 전체 주간 ${P(s.accountWeek)} · 5시간 ${P(s.account5h)})` : null;
+      el.title = [
+        n >= 2 ? `공유 계정 ${n}명 — 한 사람 몫 = 한도의 ${P(1 / n)} (설정 → 세션 기본값)` : '혼자 쓰는 계정(사람 수는 설정 → 세션 기본값에서)',
+        n >= 2 ? line('Claude', share?.anthropic) : null, n >= 2 ? line('Codex', share?.codex) : null,
+        `이 PC 오늘: 요청 ${today}번 · ${fmt(last.today.tokens)} 토큰 · 이번 주 ${last.week.requests}번`,
+        n >= 2 ? '같은 시간에 다른 선생님도 쓰면 양쪽에 다 잡혀 조금 많게 보일 수 있어요' : null,
+      ].filter(Boolean).join('\n');
+    }
+    async function refresh(force) {
+      try { last = await (await fetch('/api/usage/local' + (force ? '?force=1' : ''))).json(); } catch {}
+      try { share = await (await fetch('/api/usage/share')).json(); } catch {}
+      draw();
+    }
+    refresh(); setInterval(refresh, 60000);
+    document.addEventListener('iris:settings', draw);
+    return { refresh, draw, status, people, P };
+  })();
+  function interrupt() { const s = cur(); if (!s || s.status !== 'busy') return; send({ type: 'input', id: s.id, data: '\x1b' }); }
+  document.addEventListener('click', (e) => { if (e.target.closest('.stop-btn')) interrupt(); });
+
+  // ---------- 입력 이력(터미널의 ↑/↓처럼) — 보낸 요청문을 기억해 ↑로 되부른다(2026-09-10) ----------
+  // 저장: localStorage 'iris.history' 최근 200개(연속 중복 제외). ↑ = 캐럿이 첫 줄에 있을 때 이전 요청문, ↓ = 마지막 줄에서 다음(끝까지 가면 쓰던 글 복원).
+  const History = (() => {
+    const KEY = 'iris.history', MAX = 200; let list = []; let idx = -1, draft = '';
+    try { list = JSON.parse(localStorage.getItem(KEY) || '[]'); if (!Array.isArray(list)) list = []; } catch { list = []; }
+    const save = () => { try { localStorage.setItem(KEY, JSON.stringify(list)); } catch {} };
+    const put = (v) => { ta.value = v; ta.selectionStart = ta.selectionEnd = v.length; autoGrow(); };
+    return {
+      push(text) { if (!text) return; if (list[list.length - 1] !== text) { list.push(text); if (list.length > MAX) list = list.slice(-MAX); save(); } idx = -1; },
+      reset() { idx = -1; },
+      up() { if (!list.length) return false; if (idx === -1) { draft = ta.value; idx = list.length; } if (idx === 0) return true; idx -= 1; put(list[idx]); return true; },
+      down() { if (idx === -1) return false; idx += 1; if (idx >= list.length) { idx = -1; put(draft); } else put(list[idx]); return true; },
+      list: () => list.slice(),
+    };
+  })();
+  ta.addEventListener('input', () => History.reset());
+  // Enter = 보내기 · Ctrl+Enter / Shift+Enter = 줄바꿈 · ↑/↓ = 이력 · 한글 조합 중 키는 무시
+  ta.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'ArrowUp' && !e.altKey && !e.ctrlKey && !e.shiftKey) { if (ta.value.slice(0, ta.selectionStart).includes('\n')) return; if (History.up()) e.preventDefault(); return; }
+    if (e.key === 'ArrowDown' && !e.altKey && !e.ctrlKey && !e.shiftKey) { if (ta.value.slice(ta.selectionEnd).includes('\n')) return; if (History.down()) e.preventDefault(); return; }
+    if (e.key !== 'Enter') return;
+    if (e.ctrlKey || e.shiftKey) { e.preventDefault(); const p = ta.selectionStart, q = ta.selectionEnd; ta.value = ta.value.slice(0, p) + '\n' + ta.value.slice(q); ta.selectionStart = ta.selectionEnd = p + 1; autoGrow(); return; }
+    e.preventDefault(); submit();
+  });
+
+  // ---------- 세션 닫기 · 전부 종료 · 레일 · 단축키 ----------
+  $('#btn-close').onclick = async () => {
+    const s = cur(); if (!s) return;
+    const alive = !(s.status === 'dead' || s.status === 'exited');
+    if (alive && !(await Dialog.confirm(`${shortPath(s.cwd)} 세션(${label(s)})을 종료할까요? PID ${s.pid} 트리만 종료됩니다.`, { okLabel: '종료', danger: true }))) return;
+    try { if (alive) await api('DELETE', `/api/sessions/${s.id}`); else await api('POST', `/api/sessions/${s.id}/forget`); goHome(); } catch (e) { Dialog.alert(e.message); }
+  };
+  $('#btn-forget').onclick = () => $('#btn-close').click();
+  // 죽은 카드 그 자리에서 재개(v2.42): 데몬이 같은 세션 id로 --resume / codex resume 을 띄운다. 세션 id를 모르는 카드(첫 메시지 전)는 데몬이 400으로 거절.
+  $('#btn-resume').onclick = async () => {
+    const s = cur(); if (!s) return; const btn = $('#btn-resume'); btn.disabled = true;
+    try { await api('POST', `/api/sessions/${s.id}/resume`, {}); } catch (e) { Dialog.alert(e.message); } finally { btn.disabled = false; }
+  };
+  $('#btn-copy-resume').onclick = () => { const t = cur()?.resumeCmd; if (t) navigator.clipboard?.writeText(t); };
+  $('#btn-home').onclick = goHome;
+  // 전부 종료(v2.97): ⏻·창 ×·트레이가 같은 절차 — Electron 이면 메인의 quitAll() 한 길, 브라우저 모드면 여기서 같은 API(?wait=1)를 부른다.
+  const liveSessions = () => sessions.filter(s => !['dead', 'exited', 'orphan'].includes(s.status));
+  const workingSessions = () => sessions.filter(s => ['busy', 'attention', 'delegated', 'waiting'].includes(viewStatus(s)));
+  function showQuitting(text) {
+    let el = $('#quitting');
+    if (!el) { el = document.createElement('div'); el.id = 'quitting'; el.className = 'dlg quitting'; el.innerHTML = '<div class="dlg-box" role="alertdialog" aria-live="polite"><div class="dlg-title">IRIS 종료</div><div id="quitting-msg" class="dlg-msg"></div></div>'; document.body.appendChild(el); }
+    $('#quitting-msg').textContent = text || `세션 ${liveSessions().length}개와 그 세션이 띄운 로컬 MCP 를 끝내고 확인하는 중입니다…\n끝나면 창이 닫힙니다.`;
+    el.hidden = false;
+  }
+  const hideQuitting = () => { const el = $('#quitting'); if (el) el.hidden = true; };
+  async function quitAll() {
+    if (window.irisHost?.quitAll) { showQuitting(); return window.irisHost.quitAll(); }
+    showQuitting();
+    try {
+      const r = await api('POST', '/api/shutdown?wait=1');
+      const rep = r.report || {};
+      showQuitting(rep.ok ? 'IRIS 를 종료했습니다. 이 탭을 닫아도 됩니다.'
+        : `IRIS 를 종료했지만 일부를 확인하지 못했습니다.\n${(rep.survivors || []).map(p => `· PID ${p.pid} ${p.name || ''}`).join('\n')}${rep.verified === false ? '\n· 세션 아래 프로그램(MCP)까지 확인하지 못했습니다.' : ''}\n자세한 기록: state\\shutdown-report.json`);
+    } catch (e) { showQuitting(`종료 결과를 받지 못했습니다(${e.message}). 세션이 아직 실행 중일 수 있습니다.`); }
+  }
+  $('#btn-shutdown').onclick = async () => { if (!(await Dialog.confirm(`세션 ${liveSessions().length}개와 그 세션이 띄운 로컬 MCP 를 끝내고 IRIS 를 종료할까요?\n대화 기록은 남고, 다음에 카드에서 「↻ 여기서 재개」로 이어 갈 수 있습니다.`, { okLabel: '전부 종료', danger: true }))) return; quitAll(); };
+  // 창 × (Electron): 작업 중인 세션이 있을 때만 묻는다 — 대기 중 세션뿐이면 바로 닫는다(닫을 때마다 확인 창을 늘리지 않음)
+  window.irisHost?.onCloseRequest?.(async () => {
+    const w = workingSessions(); if (!w.length) return true;
+    return Dialog.confirm(`작업 중인 세션 ${w.length}개가 있습니다.\n창을 닫으면 IRIS 의 모든 세션과 그 세션이 띄운 로컬 MCP 가 종료됩니다. 대화 기록은 남습니다.\n(세션을 살려 두려면 최소화하세요)`, { okLabel: '닫고 종료', danger: true });
+  });
+  window.irisHost?.onQuitting?.(() => showQuitting());
+  window.irisHost?.onQuitCancel?.(() => hideQuitting());
+  $('#btn-rail').onclick = () => { railAutoHidden = false; $('#app').classList.toggle('rail-hidden'); };   // 사용자가 직접 누르면 그 뜻을 존중(서랍 닫을 때 되돌리지 않음)
+  // 작업목록 너비: 오른쪽 가장자리를 끌어 조절(180~560px), localStorage 'iris.railW'. 두 번 클릭 = 기본값(248). 접힌 상태에서는 끌지 않는다.
+  (() => {
+    const app = $('#app'), grip = $('#rail-resize'); if (!grip) return;
+    const RAIL_MIN = 180, RAIL_MAX = 560, RAIL_DEF = 248;
+    const apply = (w) => { app.style.setProperty('--rail-w', `${w}px`); };
+    try { const w = Number(localStorage.getItem('iris.railW')); if (w >= RAIL_MIN && w <= RAIL_MAX) apply(w); } catch {}
+    grip.onpointerdown = (e) => {
+      if (app.classList.contains('rail-hidden') || e.button !== 0) return;
+      e.preventDefault(); grip.setPointerCapture(e.pointerId); app.classList.add('resizing');
+      const startX = e.clientX, startW = $('#rail').getBoundingClientRect().width; let w = startW;
+      const move = (ev) => { w = Math.max(RAIL_MIN, Math.min(RAIL_MAX, Math.round(startW + ev.clientX - startX))); apply(w); };
+      const up = () => { grip.onpointermove = null; grip.onpointerup = grip.onpointercancel = null; app.classList.remove('resizing'); try { localStorage.setItem('iris.railW', String(w)); } catch {} }; // 터미널 크기는 #term-wrap의 ResizeObserver가 맞춘다
+      grip.onpointermove = move; grip.onpointerup = grip.onpointercancel = up;
+    };
+    grip.ondblclick = () => { apply(RAIL_DEF); try { localStorage.setItem('iris.railW', String(RAIL_DEF)); } catch {} };
+  })();
+  document.addEventListener('keydown', (e) => {
+    // 확인 카드(v2.43): 대화 보기에서 카드가 떠 있고 입력창이 비어 있으면 숫자·y·n 한 글자 = 그 선택지(터미널과 같은 키)
+    if (mode === 'chat' && !Settings.isOpen() && !FolderPicker.isOpen() && Approval.handleKey(e)) return;
+    if (e.ctrlKey && e.key.toLowerCase() === 'n') { e.preventDefault(); goHome(); FolderPicker.show(); }
+    if (e.ctrlKey && e.key.toLowerCase() === 'o') { e.preventDefault(); $('#btn-folder').click(); }
+    if (e.ctrlKey && e.key.toLowerCase() === 'b') { e.preventDefault(); $('#btn-rail').click(); }
+    if (e.ctrlKey && e.key.toLowerCase() === 'd') { e.preventDefault(); toggleDash(); }
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'm') { e.preventDefault(); const first = modules.find(x => x.catalog !== false) || modules[0]; if (first) modClick(first.name); } // 첫 카탈로그 모듈: 미설치 → 설치 확인 · 실행 중 → 서랍 · 멈춤 → 설정
+    if (e.ctrlKey && e.key === ',') { e.preventDefault(); Settings.isOpen() ? Settings.hide() : Settings.show(); }
+    if (e.key === 'F2' && !e.ctrlKey && !e.altKey && !Settings.isOpen() && !FolderPicker.isOpen() && renameCurrentByKey()) { e.preventDefault(); return; }
+    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'm' && mode !== 'term') { e.preventDefault(); Voice.toggle(); }
+    // Esc: 페이지 keydown(초점이 페이지 안일 때)과 Electron 메인의 before-input-event 중계(초점이 미리보기 iframe 안이라
+    // keydown이 이 문서에 오지 않을 때) 두 길로 들어온다 → 한 함수(onEscape)로 처리, 같은 키를 두 번 처리하지 않게 300ms 가드.
+    // e.code 도 보는 이유: 한글 IME가 키를 가로채면 e.key가 'Process'로 올 수 있다.
+    if (e.key === 'Escape' || e.code === 'Escape') { e.preventDefault(); onEscape(); return; }
+    if (e.ctrlKey && e.key.toLowerCase() === 't' && current) { e.preventDefault(); setMode(mode === 'term' ? 'chat' : 'term'); }
+    if (e.ctrlKey && /^[1-9]$/.test(e.key)) { const s = sessions[Number(e.key) - 1]; if (s) { e.preventDefault(); select(s.id); } }
+  });
+  let lastEscAt = 0;
+  function onEscape() {
+    const now = Date.now(); if (now - lastEscAt < 300) return; lastEscAt = now;
+    if (renaming) { renaming.cancel(); return; }      // 이름 고치는 중 Esc = 고치기 취소만(작업 중단 아님, v2.85)
+    if (Tutorial.isOpen()) { Tutorial.back(); return; } // 튜토리얼 위에서 Esc = 그 안의 한 단계 뒤로만(크게 보기 닫기·역할 다시 고르기) — 작업 중단으로 새지 않는다(v2.90 → v2.93)
+    if (Voice.cancel()) return;                       // 🎤 녹음 중 Esc = 녹음 버림
+    if (Settings.isOpen() && window.OntologyView?.back?.()) return; // 온톨로지에서 역할을 골랐거나 검색 중이면 Esc = 한 단계 뒤로만(서랍은 그대로, v2.91)
+    if (Settings.isOpen()) { Settings.hide(); return; }
+    if (MemGauge.isOpen()) { MemGauge.close(); return; } // 메모리 계기판 펼침 = Esc 로 닫기만(중단 아님)
+    if (!$('#dash').hidden) { closeDrawer(); return; }
+    if (SubPanel.isOpen()) { SubPanel.close(); ta.focus(); return; } // 보조 작업 서랍이 열려 있으면 Esc = 서랍만 닫힘(중단 아님)
+    if (!$('#cam').hidden) { camStop(); return; }
+    if (FolderPicker.isOpen()) { FolderPicker.hide(); return; }
+    if (setupMode === 'switch') { setupMode = 'new'; renderSetup(); return; }
+    // 확인 카드가 떠 있으면 Esc = 터미널과 같게 취소 키(ESC)를 그 세션에 보낸다(v2.43)
+    if (mode === 'chat' && Approval.isOpen() && Approval.choose('\x1b')) { ta.focus(); return; }
+    // 대화 화면에서도 터미널처럼 Esc = 진행 중인 작업 중단(작업 중인 세션에만 ESC 키를 보낸다). 터미널 화면은 xterm이 직접 보낸다.
+    if (mode === 'chat' && cur()?.status === 'busy') { interrupt(); ta.focus(); return; }
+    ta.focus();
+  }
+  // Electron 창: 메인이 잡은 Esc(초점이 어느 프레임에 있든)를 받는다. 브라우저 모드(irisHost 없음)면 keydown 한 길만.
+  window.irisHost?.onEscape?.(() => { if (mode === 'term') return; onEscape(); });
+  // 미리보기 iframe(PDF 뷰어 등)이 막 삽입되며 초점을 가져가면 입력창으로 되돌린다(삽입 4초 안에만 — 사용자가 직접 누른 미리보기는 그대로).
+  window.addEventListener('blur', () => setTimeout(() => {
+    const a = document.activeElement; if (!a || a.tagName !== 'IFRAME' || !a.closest('#chat')) return;
+    const born = Number(a.dataset.born || 0); if (born && Date.now() - born < 4000) ta.focus();
+  }, 0));
+
+  // ---------- 꾸미기 설정 + 사용량 배터리 (app/settings.js) ----------
+  Settings.init({ sessionCount: () => sessions.length, onShow: () => closeDrawer() }); // 서랍은 한 번에 하나 — 설정을 열면 대시보드·모듈 서랍은 닫는다
+  // ---------- 작업 완료 알림(app/notify.js, 2026-09-11): 데몬 status(done) → 오른쪽 아래 작은 알림(+창이 뒤면 OS 알림). 누르면 그 세션으로. ----------
+  MemGauge.init({ notify: (n) => Notify.push(n), pick: (id) => { if (sessions.some(s => s.id === id)) select(id); } }); // 메모리 계기판(v2.78)
+  Notify.init({ onPick: (id) => { if (String(id).startsWith('mod:')) { openModule(String(id).split(':')[1]); return; } if (sessions.some(s => s.id === id)) select(id); }, current: () => current, enabled: () => Settings.get().notifyDone !== false, osEnabled: () => Settings.get().notifyOs !== false });
+  // ---------- 보조 작업(서브에이전트) 칩·서랍(app/subagents.js, 2026-09-11): 목록이 바뀌면 작업목록의 ⁺N을 다시 그린다 ----------
+  // v2.40: 실행 중인 보조 수가 바뀌면 겉보기 상태(보조 작업 중)도 바뀌고, 보류해 둔 완료 알림의 해소 여부를 Notify가 판단한다.
+  Approval.init({ send, current: () => current, onTerm: () => setMode('term') }); // 확인 카드(v2.43)
+  // 인수 안내 카드(설치 패키지 v2, Task 21): 메신저 안내 카드는 그 모듈 서랍을 함께 펼친다.
+  Handoff.init({ onOpenModule: (name) => { if (!drawerOpenFor(`mod:${name}`)) openModule(name); } });
+  // 첫 실행 튜토리얼(v2.90): 「첫 대화 해 보기」 = 그 폴더를 고른 새 요청 화면 + 예시 문장을 채워 두기만(보내기는 사용자).
+  Tutorial.init({ onFirstChat: ({ path: p, rel, name, agent, text }) => {
+    if (current) goHome();
+    folder = { path: p, rel, name };
+    if (AGENTS[agent] && sel.agent !== agent) { sel.agent = agent; saveSel(); renderSetup(); }
+    render(); const ta2 = $('#composer-text'); ta2.value = text; ta2.dispatchEvent(new Event('input', { bubbles: true })); ta2.focus(); ta2.setSelectionRange(ta2.value.length, ta2.value.length);
+  } });
+  Canvas.init({ composer: $('#composer-text') }); // 캔버스(P18) — AI 가 만드는 파일을 대화 옆에서 실시간으로
+  // 개인 공간(P18): 잠긴 세션은 목록에서 빼고 개수만 칩에. 공간이 바뀌면 통로에 새 열쇠를 알리고, 지금 보던 세션이 남의 것이 되면 홈으로.
+  function visibleOnly(list) { const all = Array.isArray(list) ? list : []; const vis = all.filter((s) => !s.locked); try { Profile.setLockedCount(all.length - vis.length); } catch {} return vis; }
+  Profile.init({ onChange: () => { send({ type: 'profile', token: Profile.token() }); if (current && current !== 'preview') goHome(); render(); } });
+  SubPanel.init({ send, current: () => current, onChange: (id) => { render(); if (id) Notify.onSubs(id, liveN(id), SubPanel.list(id).length, sessions.find(x => x.id === id)); } });
+
+  // ---------- 각인(2026-09-10): 첫 실행 1회 `by SEJUN HAM` + 워드마크 두 번 클릭(Ctrl+Alt+I) = 별이 SEJUN HAM 으로 모임 ----------
+  const SIG_NAME = 'SEJUN HAM';
+  let sigTimer = 0;
+  function sigShow({ name, motto, by, dur, delay, top }) {
+    const el = $('#sig'); clearTimeout(sigTimer);
+    el.classList.remove('run'); void el.offsetWidth; // 애니메이션 재시작
+    $('#sig-name').textContent = name || ''; $('#sig-name').hidden = !name;
+    $('#sig-motto').textContent = motto || '';
+    el.classList.toggle('sig-by', !!by);
+    el.classList.toggle('placed', top != null); el.style.top = top != null ? `${Math.round(top)}px` : ''; // placed = 별 글자 아래 정확한 자리(px), 아니면 세로 가운데
+    el.style.setProperty('--sig-dur', dur + 'ms'); el.style.setProperty('--sig-delay', delay + 'ms');
+    el.hidden = false; el.classList.add('run');
+    sigTimer = setTimeout(() => { el.classList.remove('run'); el.hidden = true; }, dur + delay + 80);
+  }
+  function signature() {
+    if (current) return; // 홈 화면(별이 보일 때)에서만
+    const motto = Settings.health()?.about?.motto || '해결은 에이전트가, 정의는 우리가.';
+    const r = IrisStars.signature(SIG_NAME);
+    if (r) sigShow({ motto, dur: r.in + r.hold + r.out - 1400, delay: 1400, top: r.bottom + 44 }); // 별이 글자를 만들면 문장만 별 글자 아랫선에서 44px 아래, 가로 가운데(2026-09-11)
+    else sigShow({ name: SIG_NAME, motto, dur: 4300, delay: 600 });                       // 끔·별자리·움직임 줄이기: 이름도 글자로
+  }
+  $('#wordmark').addEventListener('dblclick', (e) => { e.preventDefault(); signature(); });
+  $('#iris').addEventListener('dblclick', (e) => { e.preventDefault(); signature(); }); // 중앙 애니메이션 두 번 클릭(v2.55, 2026-09-13 사용자 요청)
+  document.addEventListener('keydown', (e) => { if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'i') { e.preventDefault(); signature(); } });
+  // 시작 인트로(P18, 2026-11-10 사용자 결정 — v2.55 첫 실행 각인 `by SEJUN HAM` 을 대신함): 켤 때마다 별이 모여 IRIS →
+  // 「First developed by HSJ」 · 「Edited by McKay」 → 문장. 누르거나 키를 누르면 건너뛴다. 설정 → 디자인 「시작 인트로」로 끈다.
+  // 별로 글자를 못 만드는 무대(없음·별자리·반딧불·움직임 줄이기)는 IRIS 도 글자로(.text-only).
+  // 손글씨체(3.2MB)는 미리 받고 다 받은 뒤 띄운다(최대 2.5초 더 기다림 — v2.97.1 대체 글자체 사건).
+  const sigFont = (document.fonts?.load?.('40px "Nanum Pen Script"') || Promise.resolve()).catch(() => {});
+  function intro() {
+    if (current || Settings.get().intro === false) return;
+    const el = $('#intro');
+    $('#intro-motto').textContent = Settings.health()?.about?.motto || '해결은 에이전트가, 정의는 우리가.';
+    const r = IrisStars.signature('IRIS', { hold: 4000 }); // 별 글자가 문장까지 다 나온 뒤에 풀리게(기본 2.5초는 짧았음)
+    el.classList.toggle('text-only', !r);
+    el.classList.toggle('placed', !!r); el.style.top = r ? `${Math.round(r.bottom + 30)}px` : '';
+    el.classList.remove('run', 'leave'); void el.offsetWidth; el.hidden = false; el.classList.add('run');
+    let done = false;
+    const end = () => {
+      if (done) return; done = true; clearTimeout(tm);
+      removeEventListener('pointerdown', skip, true); removeEventListener('keydown', skip, true);
+      IrisStars.releaseSignature(); el.classList.add('leave');
+      setTimeout(() => { el.hidden = true; el.classList.remove('run', 'leave'); }, 650);
+    };
+    const skip = (e) => { if (e.type === 'keydown' && ['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return; end(); };
+    const tm = setTimeout(end, r ? r.in + r.hold - 150 : 5600); // 별이 풀려나는 순간 글자도 함께 사라진다
+    addEventListener('pointerdown', skip, true); addEventListener('keydown', skip, true);
+  }
+  setTimeout(() => { Promise.race([sigFont, new Promise((r) => setTimeout(r, 2500))]).then(intro); }, 400);
+  window.irisHost?.onAbout?.(() => Settings.about()); // 트레이 메뉴 "IRIS-Face 정보…"
+
+  // ---------- 검증용 미리보기 ?preview=<기록파일>&agent= ----------
+  const qs = new URLSearchParams(location.search);
+  if (qs.get('preview')) fetch(`/api/transcript-preview?path=${encodeURIComponent(qs.get('preview'))}&agent=${qs.get('agent') || 'claude'}`).then(r => r.json()).then((j) => { current = 'preview'; $('#view').hidden = false; IrisStars.setDim(true); $('#vh-title').textContent = '미리보기'; Transcript.render(j.items || [], j.meta); afterTranscript(j.meta); });
+
+  fetch('/api/agents').then(r => r.json()).then((a) => { AGENTS = a; renderSetup(); flushLead(); });
+  fetch('/api/agents/status').then(r => r.json()).then((j) => { ACCT = j || null; renderSetup(); }).catch(() => {});
+  connect(); autoGrow();
+
+  // ---------- 키 입력 자가 복구(2026-09-10) ----------
+  // 사용자가 창 안을 눌렀는데도 문서에 초점이 없으면(네이티브 대화상자·다른 창 간섭 뒤 OS 초점이 창 밖에 남은 상태)
+  // 메인 프로세스에 blur→focus 를 부탁해 키보드 입력을 되살린다. 브라우저 모드(irisHost 없음)에서는 조용히 넘어간다.
+  let refocusAt = 0;
+  document.addEventListener('pointerdown', () => {
+    setTimeout(() => {
+      if (document.hasFocus() || !window.irisHost?.refocus || Date.now() - refocusAt < 1500) return;
+      refocusAt = Date.now(); window.irisHost.refocus().catch(() => {});
+      setTimeout(() => { if (mode === 'term' && term) term.focus(); else ta.focus(); }, 120);
+    }, 60);
+  }, true);
+})();

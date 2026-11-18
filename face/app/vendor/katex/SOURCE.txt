@@ -1,0 +1,1 @@
+﻿KaTeX 0.16.11 (MIT) — npm katex@0.16.11, integrity sha512-RQrI8rlHY92OLf3rho/Ts8i/XvjgguEjOkO1BEXcU3N8BqPpSzBNwV/G0Ukr+P/l3ivvJUE/Fa/CwbS6HesGNQ== . dist/katex.min.js·css, contrib/auto-render.min.js, fonts/*.woff2 만 옮김(P18, 2026-11-12).

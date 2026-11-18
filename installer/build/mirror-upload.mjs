@@ -1,0 +1,194 @@
+// 릴리스 zip 을 Cloudflare R2 미러(버킷 iris-downloads, 공개 주소 pub-….r2.dev)에 올린다.
+//
+// 왜 있나(2026-09-17, 실제 사용자 4회 실측): 학교·회사 망이 GitHub 릴리스 **첨부 서버**
+// (release-assets.githubusercontent.com)만 끊는다 — github.com 은 열리고 첨부만 ERR_TIMED_OUT.
+// 홈페이지(P05 site.js `CONFIG.mirror.assets`)는 미러에 있는 판이면 내려받기 단추를 미러로
+// 돌리므로, **새 판은 반드시 여기까지 올린 뒤** 홈페이지 값을 갱신한다(AGENTS.md 새 판 순서).
+//
+// wrangler 는 300 MiB 까지만 올린다("Wrangler only supports uploading files up to 300 MiB").
+// 그래서 S3 호환 API 의 멀티파트로 올린다. 자격증명은 Cloudflare API 토큰에서 **유도**한다:
+//   access key = 토큰 id(/user/tokens/verify), secret = sha256(토큰) hex, 계정 id = /accounts.
+// 토큰은 `$env:CLAUDE_CONFIG_DIR\secrets\.env` 의 CLOUDFLARE_API_TOKEN 뿐이며 어디에도 찍지 않는다.
+//
+//   node build/mirror-upload.mjs --out _build/out-208        (zip + .sha256 둘 다)
+//   node build/mirror-upload.mjs --file <경로> [--key <이름>] [--content-type <형식>]
+//   --check <이름>   공개 주소가 200 을 돌려주는지만 본다(업로드 없음)
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { S3Client } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
+
+export const BUCKET = 'iris-downloads';
+export const PUBLIC_BASE = 'https://pub-6bb549660d7d4bd79ed07a7b6523f5c5.r2.dev';
+// 빠른 창구(2026-11-09): 같은 버킷을 Pages(서울 경유)로 내주는 주소 — 홈페이지 단추·IRIS 창 미러 1순위.
+// r2.dev(PUBLIC_BASE)는 학교망에서 초당 수십 KB 라 단추에는 쓰지 않지만, 옛 IRIS 창이 허용 주소로 쓰므로
+// latest.json 의 url 칸과 끄지 않은 공개 주소로 남는다. 창구 코드 = mirror-worker/worker.js.
+export const FAST_BASE = 'https://iris-workspace-dl.pages.dev';
+
+export function parseArgs(argv) {
+  const o = { files: [], contentType: null, key: null, out: null, check: null, stable: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--stable') o.stable = true; // latest.json(안정판 표)까지 갱신 — 없으면 미러에 파일만 올린다(최신판 기본)
+    else if (a === '--out') o.out = argv[++i];
+    else if (a === '--file') o.files.push(argv[++i]);
+    else if (a === '--key') o.key = argv[++i];
+    else if (a === '--content-type') o.contentType = argv[++i];
+    else if (a === '--check') o.check = argv[++i];
+    else throw new Error(`unknown argument: ${a}`);
+  }
+  return o;
+}
+
+function readToken() {
+  const cfg = process.env.CLAUDE_CONFIG_DIR;
+  if (!cfg) throw new Error('CLAUDE_CONFIG_DIR is not set');
+  const envFile = path.join(cfg, 'secrets', '.env');
+  for (const line of fs.readFileSync(envFile, 'utf8').split(/\r?\n/)) {
+    const m = /^\s*CLOUDFLARE_API_TOKEN\s*=\s*(.+?)\s*$/.exec(line);
+    if (m) return m[1];
+  }
+  throw new Error('CLOUDFLARE_API_TOKEN not found in secrets/.env');
+}
+
+async function cfJson(url, token) {
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const j = await r.json();
+  if (!r.ok || !j?.success) throw new Error(`Cloudflare API ${url} -> ${r.status}`);
+  return j.result;
+}
+
+export async function deriveCredentials({ token = readToken() } = {}) {
+  const verify = await cfJson('https://api.cloudflare.com/client/v4/user/tokens/verify', token);
+  const accounts = await cfJson('https://api.cloudflare.com/client/v4/accounts', token);
+  if (!verify?.id || !accounts?.[0]?.id) throw new Error('could not resolve token id / account id');
+  return {
+    accountId: accounts[0].id,
+    accessKeyId: verify.id,
+    secretAccessKey: crypto.createHash('sha256').update(token).digest('hex'),
+  };
+}
+
+export function contentTypeFor(file) {
+  const ext = path.extname(file).toLowerCase();
+  if (ext === '.zip') return 'application/zip';
+  if (ext === '.sha256' || ext === '.txt' || ext === '.md') return 'text/plain; charset=utf-8';
+  return 'application/octet-stream';
+}
+
+export async function uploadFile({ file, key = path.basename(file), contentType = contentTypeFor(file), log = console.log }) {
+  const creds = await deriveCredentials();
+  const client = new S3Client({
+    region: 'auto',
+    endpoint: `https://${creds.accountId}.r2.cloudflarestorage.com`,
+    credentials: { accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey },
+  });
+  const size = fs.statSync(file).size;
+  const started = Date.now();
+  const up = new Upload({
+    client,
+    params: { Bucket: BUCKET, Key: key, Body: fs.createReadStream(file), ContentType: contentType },
+    partSize: 64 * 1024 * 1024,
+    queueSize: 4,
+    leavePartsOnError: false,
+  });
+  let last = 0;
+  up.on('httpUploadProgress', (p) => {
+    const loaded = p.loaded ?? 0;
+    if (loaded - last >= 64 * 1024 * 1024) { last = loaded; log(`  ${(loaded / 1048576).toFixed(0)} / ${(size / 1048576).toFixed(0)} MiB`); }
+  });
+  await up.done();
+  log(`mirror: ${key} (${size.toLocaleString('en-US')} bytes) in ${Math.round((Date.now() - started) / 1000)}s`);
+  return { key, size, url: `${PUBLIC_BASE}/${key}` };
+}
+
+export async function checkPublic(key, base = PUBLIC_BASE) {
+  // identity(2.0.55): Node fetch 는 압축을 허락해 보내는데, 빠른 창구(Pages)는 작은 글 파일(.sha256)을 압축해 주며
+  // Content-Length 를 빼 버려 "200, 0 bytes" 로 읽혔다(curl 은 100 bytes). 크기 대조용이므로 압축 없이 묻는다.
+  const r = await fetch(`${base}/${key}`, { method: 'HEAD', headers: { 'accept-encoding': 'identity' } });
+  return { ok: r.status === 200, status: r.status, length: Number(r.headers.get('content-length') ?? 0) };
+}
+
+// latest.json (2026-09-19): IRIS 창의 업데이트기가 GitHub API 를 못 읽을 때(403 rate limit·차단 — 데스크탑 실측
+// "update check: … HTTP 403" 으로 새 판을 끝내 못 봄) 대신 읽는 최신 판 표. 부품별 항목 { version, tag, asset, url,
+// size, sha256Url, sigUrl, publishedAt } — Face `update.mjs fetchLatest()` 가 GitHub 응답과 같은 모양으로 쓴다.
+// 2026-11-09 두 갈래 배포(docs\설계-배포채널-2026-11-09.md): latest.json 은 **안정판 전용**이다(IRIS 창 업데이트기의 폴백).
+// 읽기에 실패하면 빈 표로 시작하지 않고 멈춘다 — 빈 표에 한 부품만 적어 올리면 나머지 부품 항목이 사라진다(코덱스 검토 5).
+// 404(아직 한 번도 안 만든 표)만 빈 표로 본다.
+export async function readLatest({ fetchImpl = fetch } = {}) {
+  const r = await fetchImpl(`${PUBLIC_BASE}/latest.json`, { cache: 'no-store' });
+  if (r.status === 404) return {};
+  if (!r.ok) throw new Error(`latest.json read failed: HTTP ${r.status} — 표를 덮어쓰지 않고 멈춤`);
+  const j = await r.json();
+  if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('latest.json is not an object — 표를 덮어쓰지 않고 멈춤');
+  return j;
+}
+export function latestEntryFor({ part, version, asset, size, publishedAt = new Date().toISOString() }) {
+  const tagPrefix = { package: 'iris-installer--v', face: 'iris-face--v', messenger: 'iris-messenger--v' }[part] ?? `${part}--v`;
+  return {
+    version, tag: `${tagPrefix}${version}`, asset, size,
+    url: `${PUBLIC_BASE}/${asset}`, sha256Url: `${PUBLIC_BASE}/${asset}.sha256`, sigUrl: `${PUBLIC_BASE}/${asset}.sha256.sig`,
+    publishedAt,
+  };
+}
+export async function updateLatest({ part, entry, log = console.log }) {
+  const data = await readLatest();
+  data[part] = entry;
+  data.updatedAt = new Date().toISOString();
+  const tmp = path.join(os.tmpdir(), `iris-latest-${process.pid}.json`);
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+  try {
+    const r = await uploadFile({ file: tmp, key: 'latest.json', contentType: 'application/json', log });
+    const c = await checkPublic('latest.json');
+    if (!c.ok) throw new Error(`latest.json public check failed: HTTP ${c.status}`);
+    log(`mirror: latest.json ${part} -> ${entry.version}`);
+    return { ok: true, key: r.key, data };
+  } finally {
+    try { fs.rmSync(tmp, { force: true }); } catch {}
+  }
+}
+
+async function main() {
+  const o = parseArgs(process.argv.slice(2));
+  if (o.check) {
+    const c = await checkPublic(o.check);
+    const f = await checkPublic(o.check, FAST_BASE);
+    console.log(`mirror check ${o.check}: r2.dev ${c.ok ? 'OK' : 'FAIL'} (HTTP ${c.status}, ${c.length.toLocaleString('en-US')} bytes) · fast ${f.ok ? 'OK' : 'FAIL'} (HTTP ${f.status}, ${f.length.toLocaleString('en-US')} bytes)`);
+    process.exit(c.ok && f.ok && c.length === f.length ? 0 : 1);
+  }
+  const files = [...o.files];
+  if (o.out) {
+    // zip · .sha256 · .sha256.sig(Face 업데이트기가 요구하는 공식 서명) 셋 다 — 서명이 빠지면 업데이트가 거절된다(2026-09-18 실측).
+    for (const f of fs.readdirSync(o.out)) if (/\.zip(\.sha256(\.sig)?)?$/.test(f)) files.push(path.join(o.out, f));
+  }
+  if (files.length === 0) throw new Error('nothing to upload (--out <dir> or --file <path>)');
+  const results = [];
+  for (const f of files) {
+    const r = await uploadFile({ file: f, key: files.length === 1 && o.key ? o.key : path.basename(f), contentType: o.contentType ?? contentTypeFor(f) });
+    const c = await checkPublic(r.key);
+    if (!c.ok || c.length !== r.size) throw new Error(`public check failed for ${r.key}: HTTP ${c.status}, ${c.length} bytes (expected ${r.size})`);
+    // 홈페이지 단추가 실제로 가리키는 빠른 창구에서도 같은 크기로 보여야 한다(창구의 이름 허용 목록에 안 맞는 이름이면 여기서 걸린다).
+    // (2.0.55) 이름을 `fast` 로 — 반복 변수 `f` 를 가리면 이 블록 첫 줄의 `file: f` 가 TDZ 오류로 죽는다.
+    const fast = await checkPublic(r.key, FAST_BASE);
+    if (!fast.ok || fast.length !== r.size) throw new Error(`fast mirror check failed for ${r.key}: HTTP ${fast.status}, ${fast.length} bytes (expected ${r.size}) — ${FAST_BASE}`);
+    results.push(r);
+  }
+  console.log('mirror: OK');
+  console.log(`homepage: add to CONFIG.mirror.assets -> ${results.filter((r) => r.key.endsWith('.zip')).map((r) => `'${r.key}'`).join(', ')}`);
+  // 설치 패키지 zip 을 올렸고 **--stable 일 때만** latest.json 의 package 항목도 갱신한다(창 업데이트기의 GitHub 불통 폴백 = 안정판 전용).
+  // 기본(최신판)은 파일만 올린다 — 최신판이 안정판 PC 의 업데이트로 새지 않게(2026-11-09 두 갈래 배포).
+  const zip = results.find((r) => /^IRIS-Setup_v\d+\.\d+\.\d+_.*\.zip$/.test(r.key));
+  if (zip && !o.stable) console.log('latest.json: 건드리지 않음(최신판). 안정판으로 올릴 때는 iris-release.mjs promote 가 갱신합니다.');
+  if (zip && o.stable) {
+    const version = /^IRIS-Setup_v(\d+\.\d+\.\d+)_/.exec(zip.key)[1];
+    await updateLatest({ part: 'package', entry: latestEntryFor({ part: 'package', version, asset: zip.key, size: zip.size }) });
+  }
+}
+
+// 직접 실행일 때만 main() — Windows 경로는 fileURLToPath 로 비교한다(URL pathname 비교는 드라이브 문자에서 어긋난다, 2026-09-17 실측).
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => { console.error(`mirror-upload: ${err?.message ?? err}`); process.exit(1); });
+}
