@@ -625,7 +625,7 @@
       draw();
     }
     refresh(); setInterval(refresh, 60000);
-    document.addEventListener('iris:settings', draw);
+    document.addEventListener('iris:cfg-change', draw);
     return { refresh, draw, status, people, P };
   })();
   function interrupt() { const s = cur(); if (!s || s.status !== 'busy') return; send({ type: 'input', id: s.id, data: '\x1b' }); }

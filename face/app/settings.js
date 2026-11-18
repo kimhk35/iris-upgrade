@@ -483,7 +483,7 @@ window.Settings = (() => {
     $('#st-math').addEventListener('input', onMathInput);
     $('#st-math').addEventListener('change', (e) => { if (e.target.id === 'st-math-f') { cfg.math = { ...cfg.math, formula: e.target.checked }; applyStage(); } save(); });
     $('#st-intro').addEventListener('change', (e) => pick({ intro: e.target.checked }));
-    $('#st-people').addEventListener('change', (e) => { const v = Math.max(1, Math.min(50, Math.round(Number(e.target.value) || 1))); e.target.value = v; pick({ sharePeople: v }); document.dispatchEvent(new CustomEvent('iris:settings')); });
+    $('#st-people').addEventListener('change', (e) => { const v = Math.max(1, Math.min(50, Math.round(Number(e.target.value) || 1))); e.target.value = v; pick({ sharePeople: v }); document.dispatchEvent(new CustomEvent('iris:cfg-change')); });
     $('#st-people').addEventListener('keydown', (e) => e.stopPropagation());
     $('#st-remeasure').addEventListener('click', () => { IrisStars.calibrate().then((st) => { if (open) renderStage(st); }); renderStage(IrisStars.status()); });
     $('#st-fps').addEventListener('click', (e) => { const chip = e.target.closest('.st-chip[data-fps]'); if (!chip) return; IrisStars.configure({ profile: { fps: Number(chip.dataset.fps), dprCap: 1 } }); renderStage(IrisStars.status()); });

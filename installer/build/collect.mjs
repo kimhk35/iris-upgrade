@@ -318,6 +318,9 @@ function redactFile(absPath, entry, log, label) {
     const re = new RegExp(entry.findRegex, 'g');
     const matches = text.match(re);
     const actualCount = matches ? matches.length : 0;
+    // P18(2026-11-19): 이미 지운 사본(설치된 IRIS 의 dash 등)을 재료로 쓰면 지울 글자가 0번이다 — 바꿔 넣을 글자가 이미 있으면
+    // "이미 지워짐"으로 넘어간다. 원래 글자가 남아 있으면(0번이 아니면) 예전처럼 멈추므로 개인 글자가 새는 길은 늘지 않는다.
+    if (actualCount === 0 && entry.replace && text.includes(entry.replace)) { log(`already redacted ${label}`); return; }
     if (actualCount !== expectedCount) {
       throw new Error(
         `redact: findRegex matched ${actualCount} time(s), expected ${expectedCount}, in ${label} (source may have changed): ${entry.findRegex}`,
