@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { SessionManager, autoResumeState } from './sessions.mjs';
 import { titleFromPrompt } from './title.mjs';
-import { AGENTS, setModelRefresher } from './agents.mjs';
+import { AGENTS, setModelRefresher, agyExe } from './agents.mjs';
 import { ModelCatalog } from './models.mjs';
 import { TranscriptTail } from './transcript.mjs';
 import { SubagentWatcher } from './subagents.mjs';
@@ -115,8 +115,9 @@ const sleepWatcher = new SleepWatcher({
 sleepWatcher.start();
 // 🔴 모델 이름 = 실제 모델(v2.102, 2026-11-10 사용자 지정): 그 PC 의 claude 실행 파일·코덱스 모델 목록에서 선택 칸을 만든다.
 // 시작 때 한 번(실행 파일이 그대로면 저장해 둔 결과, 처음·업데이트 뒤엔 0.3~2초 읽기) + 세션 만들기 직전(normalize) + 10분마다.
-const models = new ModelCatalog({ AGENTS, env: () => childEnv(), codexHome: CODEX_HOME, cacheFile: path.join(STATE, 'model-scan.json'), log: (m) => log(m) });
-setModelRefresher(() => { if (models.refresh()) broadcast(agentsMsg()); });
+const models = new ModelCatalog({ AGENTS, env: () => childEnv(), codexHome: CODEX_HOME, cacheFile: path.join(STATE, 'model-scan.json'), log: (m) => log(m), agyExe: () => agyExe(childEnv()) });
+setModelRefresher(() => { if (models.refresh()) broadcast(agentsMsg()); models.refreshGemini({ onChange: () => broadcast(agentsMsg()) }); }); // Gemini 목록은 뒤에서(P18)
+models.refreshGemini({ force: true, onChange: () => broadcast(agentsMsg()) }); // 켜자마자 한 번 — 처음 PC 도 손 표 3개가 아니라 agy 목록으로
 try { models.refresh({ force: true }); log(`models: claude=${models.info().claude.source} ${AGENTS.claude.models.map((m) => `${m.id}=${m.label}`).join(', ')}`); } catch (e) { log(`models init error: ${e?.message || e}`); }
 setInterval(() => { try { if (models.refresh()) broadcast(agentsMsg()); } catch {} }, 10 * 60_000).unref();
 // ---- 모듈 콘센트(계약 v1, 2026-09-11): modules\<이름>\ 을 별 프로세스로. 모듈이 없으면 아무것도 하지 않는다(바깥 연결 0 = verify:nomodule). ----
@@ -253,7 +254,7 @@ function buildHandoff(items, rec) {
   }
   let body = lines.join('\n\n');
   if (body.length > 8000) body = '…(앞부분 생략)…\n\n' + body.slice(-8000);
-  const from = `${rec.agent === 'claude' ? 'Claude' : 'Codex'} ${rec.modelLabel || rec.model} · ${rec.effort}`;
+  const from = `${({ claude: 'Claude', codex: 'Codex', gemini: 'Gemini' })[rec.agent] || rec.agent} ${rec.modelLabel || rec.model}${rec.effort ? ` · ${rec.effort}` : ''}`;
   return `[이전 대화 이어받기 — ${from} 세션에서 옮겨 옴, 폴더 ${rec.cwd}]\n아래는 지금까지의 대화다. 이미 끝난 작업은 다시 하지 말고, 결정된 내용은 그대로 따른다.\n\n${body || '(이전 대화 없음)'}`;
 }
 
@@ -420,6 +421,7 @@ const server = http.createServer(async (req, res) => {
       catch (e) { return json(res, 500, { error: e.message }); }
     }
     if (req.method === 'GET' && p === '/api/relay/ready') {
+      if (url.searchParams.get('agent') === 'gemini') return json(res, 200, { ready: true, relay: false, agent: 'gemini' }); // Gemini 는 중계기를 거치지 않는다(P18)
       const agent = url.searchParams.get('agent') === 'codex' ? 'codex' : 'claude';
       if (!dashDir()) return json(res, 200, { ready: true, relay: false }); // 중계기 도구가 없는 설치 — 확인할 것이 없다
       return json(res, 200, { ready: await relayReady(agent), relay: true, agent });
@@ -665,11 +667,11 @@ const server = http.createServer(async (req, res) => {
           const tl = tailFor(before); try { tl?.poll(); } catch {}
           const handoff = buildHandoff(tl?.items || [], before);
           const first = handoff + (b.text ? `\n\n[이어지는 요청]\n${b.text}` : '\n\n위 대화를 이어받았으면 한 줄로 확인만 하고, 다음 요청을 기다려라.');
-          rec = sm.replaceAgent(id, { agent: b.agent, model: b.model, expectModel: b.expectModel, effort: b.effort, readOnly: b.readOnly, permission: b.permission, approval: b.approval, sandbox: b.sandbox, prompt: first });
+          rec = sm.replaceAgent(id, { agent: b.agent, model: b.model, expectModel: b.expectModel, effort: b.effort, readOnly: b.readOnly, permission: b.permission, approval: b.approval, sandbox: b.sandbox, mode: b.mode, prompt: first });
           tails.delete(id);
           log(`handoff ${id} [${beforeCmd}] -> [${rec.cmdline}] pid=${rec.pid} items=${(tl?.items || []).length} chars=${first.length}`);
         } else {
-          rec = sm.switchTo(id, { model: b.model, expectModel: b.expectModel, effort: b.effort, readOnly: b.readOnly, permission: b.permission, approval: b.approval, sandbox: b.sandbox, prompt: b.text || '' });
+          rec = sm.switchTo(id, { model: b.model, expectModel: b.expectModel, effort: b.effort, readOnly: b.readOnly, permission: b.permission, approval: b.approval, sandbox: b.sandbox, mode: b.mode, prompt: b.text || '' });
           log(`switch ${id} [${beforeCmd}] -> [${rec.cmdline}] pid=${rec.pid}`);
         }
         broadcastSessions();

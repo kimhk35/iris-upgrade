@@ -24,7 +24,7 @@
     if (v === 'delegated') return `${SubPanel.running(s.id) ? STATUS_KO.delegated : '배경 작업 중'} ⁺${liveN(s.id)}`;
     return v === 'waiting' ? `${STATUS_KO[v]} ⁺${SubPanel.alive(s.id)}` : (STATUS_KO[v] || v);
   };
-  const AGENT_KO = { claude: 'Claude', codex: 'Codex' };
+  const AGENT_KO = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini' };
   let sessions = [], current = null, ws = null, term = null, fit = null, mode = 'chat', AGENTS = null, ACCT = null;
   let folder = null;                 // 새 요청 모드에서 고른 폴더
   let setupMode = 'new';             // 'new' = 새 세션 조합 / 'switch' = 열린 세션의 조합 바꾸기
@@ -35,7 +35,8 @@
   const cur = () => sessions.find(s => s.id === current) || null;
   const PERM_KO = { bypassPermissions: '전부 허용', acceptEdits: '편집 자동 허용', auto: '자동', dontAsk: '묻지 않음', manual: '매번 묻기', plan: '계획만', never: '승인 없음', 'on-request': '필요 시 승인', 'read-only': '읽기 전용', 'workspace-write': '작업 폴더 쓰기', 'danger-full-access': '전체 접근' };
   const permText = (r) => [r.permission, r.approval, r.sandbox].filter(Boolean).map(k => PERM_KO[k] || k).join(' · ');
-  const label = (r) => r ? `${AGENT_KO[r.agent] || r.agent} ${r.modelLabel || r.model} · ${r.effort}${permText(r) ? ' · ' + permText(r) : ''}` : '';
+  const effTxt = (e) => (e ? ` · ${e}` : ''); // Gemini 는 사고깊이가 모델 이름에 들어 있어 빈 값(P18)
+  const label = (r) => r ? `${AGENT_KO[r.agent] || r.agent} ${r.modelLabel || r.model}${effTxt(r.effort)}${permText(r) ? ' · ' + permText(r) : ''}` : '';
 
   IrisStars.mount($('#iris'));
   Transcript.mount($('#chat'));
@@ -58,7 +59,7 @@
     bar.hidden = false;
     if (p.complete) setupHideTimer = setTimeout(() => { bar.hidden = true; }, 5 * 60 * 1000);
   }
-  function loadSel() { try { const s = JSON.parse(localStorage.getItem('iris.sel') || 'null'); if (s && s.model && s.effort) return { permission: '', approval: '', sandbox: '', ...s }; } catch {} return { agent: 'claude', model: { claude: 'opus', codex: 'gpt-6.1-sol' }, effort: { claude: 'high', codex: 'medium' }, permission: '', approval: '', sandbox: '' }; }
+  function loadSel() { try { const s = JSON.parse(localStorage.getItem('iris.sel') || 'null'); if (s && s.model && s.effort) return { permission: '', approval: '', sandbox: '', ...s }; } catch {} return { agent: 'claude', model: { claude: 'opus', codex: 'gpt-6.1-sol', gemini: 'gemini-4-argon-medium' }, effort: { claude: 'high', codex: 'medium', gemini: '' }, permission: '', approval: '', sandbox: '' }; }
   function saveSel() { try { localStorage.setItem('iris.sel', JSON.stringify(sel)); } catch {} }
   // 새 세션 기본 에이전트 = 설치기가 고른 주도 에이전트(사용자가 한 번이라도 고르기 전까지만). 코덱스만 로그인한 PC 가 클로드로 서지 않게(2026-09-19).
   // v2.90: 에이전트 목록(/api/agents)보다 hello 가 먼저 오면 AGENTS 가 아직 null — 예전엔 여기서 오류가 나 hello 처리 전체가 멈췄다
@@ -73,12 +74,12 @@
   }
   const flushLead = () => { if (pendingLead && AGENTS) { const h = pendingLead; pendingLead = null; applyLeadAgent(h); } };
   // 권한 기본값은 설정(⚙ → 권한 기본값)에서 온다
-  function currentSel() { const st = Settings.get(); return { agent: sel.agent, model: sel.model[sel.agent], effort: sel.effort[sel.agent], permission: sel.agent === 'claude' ? (st.permission || '') : '', approval: sel.agent === 'codex' ? (st.approval || '') : '', sandbox: sel.agent === 'codex' ? (st.sandbox || '') : '' }; }
+  function currentSel() { const st = Settings.get(); return { agent: sel.agent, model: sel.model[sel.agent], effort: sel.effort[sel.agent], permission: sel.agent === 'claude' ? (st.permission || '') : '', approval: sel.agent === 'codex' ? (st.approval || '') : '', sandbox: sel.agent === 'codex' ? (st.sandbox || '') : '', mode: sel.agent === 'gemini' ? (st.geminiMode ?? 'bypass') : '' }; } // Gemini 기본 = 다른 AI 와 같은 「전부 허용」(P18)
   const fill = (el, list, val) => { el.innerHTML = list.map(o => `<option value="${esc(o.id)}">${esc(o.label)}</option>`).join(''); el.value = val ?? ''; };
-  const AGENT_NAME = { claude: 'Claude', codex: 'Codex' };
+  const AGENT_NAME = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini' };
   // v2.96.2(2026-10-27 사용자 결정, 옛 v2.76 한 줄 안내 대체): 입력창 위 긴 안내 글은 없앴다. 프로그램이 없거나 계정이 0개인
   // 에이전트 버튼은 **비활성**(누를 수 없음) + 마우스를 올리면 짧은 말풍선. 고른 쪽이 꺼지면 켜진 쪽으로 옮긴다. 둘 다 꺼지면 막지 않는다(할 수 있는 게 없어짐).
-  const OFF_TIP = { missing: '프로그램 없음 — IRIS 설치 파일을 다시 실행하면 받습니다', account: '계정 연결 안 됨 — 대시보드에서 계정을 추가하면 켜집니다' };
+  const OFF_TIP = { missing: '프로그램 없음 — IRIS 설치 파일을 다시 실행하면 받습니다', account: '계정 연결 안 됨 — 대시보드에서 계정을 추가하면 켜집니다', gemini: 'Antigravity CLI(agy) 없음 — PowerShell 에서 공식 설치 명령으로 설치하고 agy 로 구글 로그인하면 켜집니다' };
   function agentOff() {
     const off = {};
     for (const k of ACCT?.missing || []) if (AGENTS[k]) off[k] = 'missing';
@@ -92,7 +93,7 @@
     for (const b of document.querySelectorAll('.seg-agent .seg-btn')) {
       const k = b.dataset.agent; b.hidden = !AGENTS[k];
       // disabled 속성 대신 aria-disabled + 누름 무시: disabled 버튼은 마우스 사건을 안 받아 말풍선이 안 뜰 수 있다
-      b.setAttribute('aria-disabled', off[k] ? 'true' : 'false'); b.classList.toggle('no-account', !!off[k]); b.title = off[k] ? `${AGENT_NAME[k] || k} · ${OFF_TIP[off[k]]}` : '';
+      b.setAttribute('aria-disabled', off[k] ? 'true' : 'false'); b.classList.toggle('no-account', !!off[k]); b.title = off[k] ? `${AGENT_NAME[k] || k} · ${OFF_TIP[k === 'gemini' && off[k] === 'missing' ? 'gemini' : off[k]]}` : '';
     }
     if (!AGENTS[sel.agent] || (off[sel.agent] && setupMode !== 'switch')) { const on = Object.keys(AGENTS).find(k => !off[k]); if (on && on !== sel.agent) { sel.agent = on; saveSel(); } }
     const a = AGENTS[sel.agent];
@@ -104,7 +105,7 @@
     }
     for (const b of document.querySelectorAll('.seg-agent .seg-btn')) b.classList.toggle('active', b.dataset.agent === sel.agent);
     const sm = $('#sel-model'); sm.innerHTML = a.models.map(m => `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join(''); sm.value = sel.model[sel.agent];
-    const se = $('#sel-effort'); se.innerHTML = efforts.map(e => `<option value="${esc(e)}">${esc(e)}</option>`).join(''); se.value = sel.effort[sel.agent];
+    const se = $('#sel-effort'); se.innerHTML = efforts.map(e => `<option value="${esc(e)}">${esc(e)}</option>`).join(''); se.value = sel.effort[sel.agent]; se.hidden = !efforts.length; // Gemini: 깊이 칸 없음
     const s = cur();
     // 세션 모드에서는 조합 줄을 감춘다. 입력창의 조합 아이콘을 누르면 '이어가기' 모드로 나타난다.
     $('#setup').hidden = !!s && setupMode !== 'switch';
@@ -124,7 +125,7 @@
   $('#setup-cancel').onclick = () => { setupMode = 'new'; renderSetup(); };
   $('#setup-apply').onclick = async () => {
     const s = cur(); if (!s) return; const c = currentSel();
-    const to = `${AGENT_KO[c.agent]} ${$('#sel-model').selectedOptions[0]?.textContent} · ${c.effort}`;
+    const to = `${AGENT_KO[c.agent]} ${$('#sel-model').selectedOptions[0]?.textContent}${effTxt(c.effort)}`;
     const cross = c.agent !== s.agent;
     if (!cross && !s.sessionId) { await Dialog.alert('첫 메시지를 보낸 뒤에 바꿀 수 있습니다.'); return; }
     const msg = cross
@@ -132,7 +133,7 @@
       : `${to}으로 같은 대화를 다시 엽니다(현재 프로세스 종료). 계속할까요?`;
     if (!(await Dialog.confirm(msg, { okLabel: '계속' }))) return;
     try {
-      await api('POST', `/api/sessions/${s.id}/switch`, { agent: c.agent, model: c.model, expectModel: expectOf(c), effort: c.effort, permission: c.permission, approval: c.approval, sandbox: c.sandbox });
+      await api('POST', `/api/sessions/${s.id}/switch`, { agent: c.agent, model: c.model, expectModel: expectOf(c), effort: c.effort, permission: c.permission, approval: c.approval, sandbox: c.sandbox, mode: c.mode });
       setupMode = 'new'; renderSetup(); if (cross) { Transcript.clear(); setTimeout(() => loadTranscript(s.id), 1500); }
     } catch (e) { Dialog.alert(e.message); }
   };
@@ -203,7 +204,7 @@
       const li = document.createElement('li'); li.className = 'srow' + (s.id === current ? ' active' : ''); li.dataset.id = s.id; li.draggable = true;
       li.innerHTML = `<span class="dot ${viewStatus(s)}" title="${statusText(s)}"></span>
         <span class="sname" title="${esc(`${s.title || shortPath(s.cwd)}\n(두 번 클릭 · F2 = 이름 바꾸기)`)}"><span class="stitle">${esc(s.title || shortPath(s.cwd))}</span>${liveN(s.id) ? `<span class="subn${SubPanel.running(s.id) || bgN(s.id) ? '' : ' quiet'}" title="${esc([`살아 있는 보조 작업 ${SubPanel.alive(s.id)}개(실행 중 ${SubPanel.running(s.id)}) · 배경 작업 ${bgN(s.id)}개`, ...bgLines(s.id)].join('\n'))}">⁺${liveN(s.id)}</span>` : ''}</span><span class="sside"><span class="sidx">${i + 1}</span><button class="srename" title="이름 바꾸기 (F2)" aria-label="이름 바꾸기">${Icons.svg('pencil', 14)}</button></span>
-        <span class="smeta"><span class="chip ${s.agent}">${AGENT_KO[s.agent]}</span> ${s.title ? `<span class="sfold" title="${esc(s.cwd)}">${esc(shortPath(s.cwd))}</span> · ` : ''}${esc(s.modelLabel || s.model)} · ${esc(s.effort)}${permText(s) ? ' · ' + esc(permText(s)) : ''} · ${statusText(s)}</span>`;
+        <span class="smeta"><span class="chip ${s.agent}">${AGENT_KO[s.agent]}</span> ${s.title ? `<span class="sfold" title="${esc(s.cwd)}">${esc(shortPath(s.cwd))}</span> · ` : ''}${esc(s.modelLabel || s.model)}${effTxt(esc(s.effort || ''))}${permText(s) ? ' · ' + esc(permText(s)) : ''} · ${statusText(s)}</span>`;
       li.onclick = () => { if (s.id === current && setupMode === 'new') return; select(s.id); }; // 이미 보는 줄은 다시 그리지 않는다 — 두 번 클릭의 둘째 클릭이 사라진 줄에 떨어지지 않게(v2.85)
       li.querySelector('.srename').onclick = (e) => { e.stopPropagation(); startRename(s.id, li.querySelector('.stitle')); }; // 연필(v2.86) = 선택하지 않고 그 자리에서 고친다
       // 끌어서 순서 바꾸기(HTML5 DnD): 놓는 위치는 대상 행의 위/아래 절반으로 판단
@@ -575,7 +576,7 @@
       } else {
         if (!folder) { FolderPicker.show(); return; }
         const c = currentSel();
-        const rec = await api('POST', '/api/sessions', { cwd: folder.path, agent: c.agent, model: c.model, expectModel: expectOf(c), effort: c.effort, permission: c.permission, approval: c.approval, sandbox: c.sandbox, prompt: text });
+        const rec = await api('POST', '/api/sessions', { cwd: folder.path, agent: c.agent, model: c.model, expectModel: expectOf(c), effort: c.effort, permission: c.permission, approval: c.approval, sandbox: c.sandbox, mode: c.mode, prompt: text });
         select(rec.id);
         Transcript.prime(text); // 기록파일이 생기기 전에도 요청문 + "세션 여는 중"을 바로 보여 준다(멈춘 것처럼 보이지 않게)
       }
@@ -593,7 +594,7 @@
     const fmt = (t) => t >= 1e6 ? (t / 1e6).toFixed(1) + 'M' : t >= 1e3 ? Math.round(t / 1e3) + 'K' : String(t);
     const P = (v) => `${Math.round((v || 0) * 100)}%`;
     const people = () => Math.max(1, Number(Settings.get().sharePeople) || 1);
-    const provOf = (agent) => (agent === 'codex' ? 'codex' : 'anthropic');
+    const provOf = (agent) => (agent === 'codex' ? 'codex' : agent === 'gemini' ? null : 'anthropic'); // Gemini 는 중계기 밖(공유 몫 계산 없음)
     const agentNow = () => cur()?.agent || sel?.agent || 'claude';
     /** 그 에이전트 계정에서 내 몫을 넘었나 → { over, week, h5, quota } (사람 수 1 이거나 측정값 없으면 over=false) */
     function status(agent = agentNow()) {

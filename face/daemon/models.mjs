@@ -14,7 +14,7 @@
 // 읽기 실패·실행 파일 없음이면 손 표로 돌아가되 클로드 별칭 이름에서 판 번호를 빼 거짓 판을 말하지 않는다.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execFile } from 'node:child_process';
 
 const FAMILIES = ['opus', 'sonnet', 'fable', 'haiku'];
 const FAMILY_KO = { opus: 'Opus', sonnet: 'Sonnet', fable: 'Fable', haiku: 'Haiku' };
@@ -182,14 +182,47 @@ export function codexModelsFrom(staticModels, cache) {
  * 데몬이 쓰는 한 곳. AGENTS 의 models 배열을 제자리에서 바꾼다(GET /api/agents·normalize 가 같은 배열을 본다).
  * 클로드 실행 파일이 바뀌었는지(경로·크기·수정 시각)는 refresh() 마다 stat 한 번으로 본다 — 세션 만들기 직전에 부른다.
  */
+/** `agy models` 출력(한 줄 = "<정확한 이름>\t<보이는 이름>") → [{id,label}]. 이름 = 실제 모델(P18, 2026-11-19). */
+export function agyModelsFrom(text) {
+  const out = [];
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const m = /^([a-z0-9][a-z0-9.-]{2,80})\t+(.+?)\s*$/.exec(line);
+    if (m && !out.some((x) => x.id === m[1])) out.push({ id: m[1], label: m[2], actual: m[1] });
+  }
+  return out;
+}
+export const AGY_MODELS_TTL_MS = 10 * 60_000;
+
 export class ModelCatalog {
-  constructor({ AGENTS, env = () => process.env, codexHome, cacheFile, log = () => {}, resolve = resolveClaudeChain, scan = scanClaudeBinary } = {}) {
-    Object.assign(this, { AGENTS, env, codexHome, cacheFile, log, resolve, scan });
+  constructor({ AGENTS, env = () => process.env, codexHome, cacheFile, log = () => {}, resolve = resolveClaudeChain, scan = scanClaudeBinary, agyExe = null, agyRun = defaultAgyRun } = {}) {
+    Object.assign(this, { AGENTS, env, codexHome, cacheFile, log, resolve, scan, agyExe, agyRun });
     this.staticClaude = AGENTS.claude.models.map((m) => ({ ...m }));
     this.staticCodex = AGENTS.codex.models.map((m) => ({ ...m }));
     this.claude = { file: null, key: '', source: 'none' };
     this.codexKey = '';
     this.whereAt = 0;
+    // Gemini(agy): `agy models` 는 인터넷에서 목록을 받아 1~2초 걸린다 — 뒤에서 받고(refresh 를 막지 않음), 받은 목록은 파일에 둬 다음 시작에 바로 쓴다
+    this.gemini = { at: 0, busy: false, source: 'static' };
+    this.geminiFile = cacheFile ? path.join(path.dirname(cacheFile), 'gemini-models.json') : null;
+    if (AGENTS.gemini && this.geminiFile) {
+      try { const c = JSON.parse(fs.readFileSync(this.geminiFile, 'utf8')); if (Array.isArray(c.models) && c.models.length) { this.replace('gemini', c.models); this.gemini.source = 'saved'; } } catch {}
+    }
+  }
+  /** Gemini 목록을 뒤에서 새로 받는다(10분에 한 번). 바뀌면 onChange 를 부른다. */
+  refreshGemini({ force = false, onChange = () => {} } = {}) {
+    if (!this.AGENTS.gemini || this.gemini.busy) return;
+    const exe = typeof this.agyExe === 'function' ? this.agyExe() : this.agyExe;
+    if (!exe) return;
+    if (!force && Date.now() - this.gemini.at < AGY_MODELS_TTL_MS) return;
+    this.gemini.busy = true; this.gemini.at = Date.now();
+    Promise.resolve(this.agyRun(exe, this.env())).then((text) => {
+      const list = agyModelsFrom(text);
+      if (!list.length) { this.log('models: agy 목록을 읽지 못함(로그인 전이거나 인터넷 끊김) — 저장된 목록 유지'); return; }
+      const before = JSON.stringify(this.AGENTS.gemini.models.map((m) => m.id));
+      this.replace('gemini', list); this.gemini.source = 'agy';
+      try { if (this.geminiFile) { const tmp = this.geminiFile + '.tmp'; fs.writeFileSync(tmp, JSON.stringify({ at: new Date().toISOString(), models: list }, null, 2)); fs.renameSync(tmp, this.geminiFile); } } catch {}
+      if (JSON.stringify(list.map((m) => m.id)) !== before) { this.log(`models: agy ${list.length}개`); onChange(); }
+    }).catch((e) => this.log(`models: agy 확인 실패 ${e?.message || e}`)).finally(() => { this.gemini.busy = false; });
   }
   /** @returns {boolean} 목록이 바뀌었으면 true */
   refresh({ force = false } = {}) {
@@ -244,6 +277,13 @@ export class ModelCatalog {
     try { fs.mkdirSync(path.dirname(this.cacheFile), { recursive: true }); const tmp = this.cacheFile + '.tmp'; fs.writeFileSync(tmp, JSON.stringify({ ver: SCAN_VER, key, scan }, null, 2)); fs.renameSync(tmp, this.cacheFile); } catch {}
   }
   info() { return { claude: { file: this.claude.file, source: this.claude.source }, codex: { cache: this.codexKey !== 'none' } }; }
+}
+
+/** `agy models` 를 비동기로 돌려 표준 출력을 돌려준다(20초 한도). */
+function defaultAgyRun(exe, env) {
+  return new Promise((resolve) => {
+    execFile(exe, ['models'], { env, windowsHide: true, timeout: 20000, encoding: 'utf8', maxBuffer: 1024 * 1024 }, (err, stdout) => resolve(err && !stdout ? '' : String(stdout || '')));
+  });
 }
 
 /** 고른 모델(정확한 이름) ↔ 세션 기록의 실제 응답 모델이 같은가. 모르면 null. */

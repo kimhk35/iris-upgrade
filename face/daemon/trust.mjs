@@ -71,10 +71,32 @@ export function trustCodex(cwd, codexHome) {
   return 'appended';
 }
 
+/**
+ * Gemini(agy, P18 2026-11-19): 처음 보는 폴더에서 "Do you trust the contents of this project?" 를 띄우고, 그 사이 보낸 첫 요청은
+ * 사라진다(실측). agy 는 믿는 폴더를 <agyHome>\settings.json 의 trustedWorkspaces(절대 경로 배열)에 적는다 — 미리 더해 둔다.
+ * 다른 설정 키는 그대로 두고 배열에만 덧붙인다. 대소문자·끝 역슬래시 차이는 같은 폴더로 본다.
+ */
+export function trustGemini(cwd, agyHome) {
+  if (!agyHome) return 'skipped:no-home';
+  const file = path.join(agyHome, 'settings.json');
+  let data = {};
+  if (fs.existsSync(file)) {
+    try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return 'skipped:unreadable'; }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return 'skipped:unreadable';
+  }
+  const list = Array.isArray(data.trustedWorkspaces) ? data.trustedWorkspaces : [];
+  const norm = (p) => path.resolve(String(p)).replace(/[\\/]+$/, '').toLowerCase();
+  const want = path.resolve(cwd);
+  if (list.some((p) => norm(p) === norm(want))) return 'unchanged';
+  writeAtomic(file, JSON.stringify({ ...data, trustedWorkspaces: [...list, want] }, null, 2));
+  return list.length ? 'appended' : 'created';
+}
+
 /** 세션을 띄우기 직전에 부른다. env 는 자식에게 줄 환경(영수증이 채운 CLAUDE_CONFIG_DIR·CODEX_HOME 포함). 절대 던지지 않는다. */
 export function preTrust({ agent, cwd, env = {}, fallback = {} }) {
   try {
     if (agent === 'codex') return { agent, result: trustCodex(cwd, env.CODEX_HOME || fallback.codexHome) };
+    if (agent === 'gemini') return { agent, result: trustGemini(cwd, fallback.agyHome) };
     return { agent: 'claude', result: trustClaude(cwd, env.CLAUDE_CONFIG_DIR || fallback.claudeConfigDir) };
   } catch (e) { return { agent, result: `skipped:${String(e?.message || e)}` }; }
 }

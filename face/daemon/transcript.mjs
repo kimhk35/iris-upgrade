@@ -109,7 +109,7 @@ export class TranscriptTail {
     for (const line of lines) {
       if (!line.trim()) continue;
       let rec; try { rec = JSON.parse(line); } catch { continue; }
-      const items = this.agent === 'codex' ? this.fromCodex(rec) : this.fromClaude(rec);
+      const items = this.agent === 'codex' ? this.fromCodex(rec) : this.agent === 'gemini' ? this.fromGemini(rec) : this.fromClaude(rec);
       for (const it of items) {
         it.i = ++this.seq; out.push(it);
         if (this.firstUser == null && it.kind === 'user' && it.text && it.text !== '[이미지]') this.firstUser = it.text;
@@ -120,6 +120,42 @@ export class TranscriptTail {
     this.items.push(...out);
     if (this.items.length > MAX_ITEMS) this.items = this.items.slice(-MAX_ITEMS);
     return out;
+  }
+
+  // ---------- Gemini (Antigravity CLI · agy, P18 2026-11-19) ----------
+  // 기록 한 줄 = { step_index, source, type, status, created_at, content?, model?, input_tokens?, output_tokens?, tool_calls? }.
+  //   USER_INPUT       = 사용자 요청(<USER_REQUEST>…</USER_REQUEST> 안만, 나머지는 agy 가 덧붙인 시각·설정 안내)
+  //   PLANNER_RESPONSE = 답 글(content) 과/또는 도구 호출(tool_calls[{name,args}] — args 값은 JSON 글자로 한 번 더 싸여 있다)
+  //   GENERIC          = 직전 도구의 결과("Created At/Completed At" 머리줄 뒤가 본문)
+  fromGemini(r) {
+    const t = r.created_at || null;
+    if (r.type === 'USER_INPUT') {
+      const m = /<USER_REQUEST>\n?([\s\S]*?)\n?<\/USER_REQUEST>/.exec(String(r.content || ''));
+      const text = (m ? m[1] : String(r.content || '')).trim();
+      return text ? [{ t, kind: 'user', text }] : [];
+    }
+    if (r.type === 'PLANNER_RESPONSE') {
+      if (r.model) this.model = r.model;
+      if (r.input_tokens != null) { // 입력 토큰이 적힌 줄만(도구 호출 줄은 출력만 있어 컨텍스트 계기판을 0 으로 덮었다)
+        const inn = (r.input_tokens || 0) + (r.cache_read_tokens || 0);
+        this.lastUsage = { in: inn, out: r.output_tokens || 0, total: inn + (r.output_tokens || 0) };
+      }
+      const out = [];
+      const text = typeof r.content === 'string' ? r.content.trim() : '';
+      if (text) out.push({ t, kind: 'assistant', text, ...(r.model ? { model: r.model } : {}) });
+      for (const c of Array.isArray(r.tool_calls) ? r.tool_calls : []) {
+        const input = geminiArgs(c?.args);
+        const name = String(c?.name || 'tool');
+        const files = writtenFiles(name, input);
+        out.push({ t, kind: 'tool', name, detail: summarizeInput(name, input), ...(files.length ? { files } : {}) });
+      }
+      return out;
+    }
+    if (r.type === 'GENERIC') {
+      const body = String(r.content || '').split('\n').filter((l) => !/^(Created|Completed) At: /.test(l)).join('\n').trim();
+      return body ? [{ t, kind: 'tool_result', text: clip(body, 6000) }] : [];
+    }
+    return this.countUnknown(r.type || 'gemini', []);
   }
 
   // ---------- Claude Code ----------
@@ -326,9 +362,23 @@ function safeJson(s) { if (typeof s !== 'string') return s; try { return JSON.pa
  * 이 도구 호출이 만들거나 고친 파일 경로들(캔버스, P18) — 클로드 Write·Edit·MultiEdit·NotebookEdit 의 file_path/notebook_path,
  * 코덱스 apply_patch 의 「*** Add File: / *** Update File: / *** Move to:」 줄. 상대 경로는 그대로 두고 화면이 세션 폴더 기준으로 푼다.
  */
+/** agy 도구 인수: 값이 JSON 글자로 한 번 더 싸여 있다('"dir"') — 풀고, 이름은 소문자로(CommandLine → commandline) +
+ *  IRIS 가 읽는 이름으로 겹쳐 둔다(command·path). */
+export function geminiArgs(args) {
+  const out = {};
+  if (!args || typeof args !== 'object') return out;
+  for (const [k, v] of Object.entries(args)) {
+    let val = v;
+    if (typeof v === 'string') { try { val = JSON.parse(v); } catch { val = v; } }
+    out[k.toLowerCase()] = val;
+  }
+  if (out.commandline != null && out.command == null) out.command = out.commandline;
+  for (const k of ['targetfile', 'absolutepath', 'filepath', 'file']) if (out[k] != null && out.path == null) out.path = out[k];
+  return out;
+}
 export function writtenFiles(name, input) {
   const out = [];
-  if (/^(Write|Edit|MultiEdit|NotebookEdit|Create|Update)$/i.test(String(name)) && input && typeof input === 'object') {
+  if (/^(Write|Edit|MultiEdit|NotebookEdit|Create|Update|write_file|write_to_file|replace_file_content|multi_replace_file_content|edit_file|create_file)$/i.test(String(name)) && input && typeof input === 'object') {
     const p = input.file_path || input.notebook_path || input.path;
     if (typeof p === 'string' && p) out.push(p);
   }

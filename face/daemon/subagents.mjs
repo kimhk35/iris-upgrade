@@ -32,6 +32,7 @@ export class SubagentWatcher {
   /** 살펴볼 폴더들 */
   dirs() {
     if (this.agent === 'claude') return this.sessionId ? [path.join(path.dirname(this.recordPath), this.sessionId, 'subagents')] : [];
+    if (this.agent === 'gemini') return []; // Gemini(agy) 보조 작업 기록 형식은 아직 모른다(P18 첫 판) — 코덱스 폴더를 뒤지지 않게
     const out = new Set([path.dirname(this.recordPath), dayDir(new Date()), dayDir(new Date(Date.now() - 86400000))]);
     return [...out];
   }

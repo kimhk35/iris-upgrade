@@ -67,7 +67,8 @@
     "verify:netenv": "node scripts/check-netenv.mjs",
     "verify:codexpair": "node scripts/check-codexpair.mjs",
     "verify:utf8tail": "node scripts/check-utf8tail.mjs",
-    "verify:quiet": "node scripts/check-quiet.mjs"
+    "verify:quiet": "node scripts/check-quiet.mjs",
+    "verify:gemini": "node scripts/check-gemini.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

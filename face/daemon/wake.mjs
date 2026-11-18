@@ -21,6 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { soulRoot, readReceipt } from './paths.mjs';
+import { agyExe } from './agents.mjs';
 
 export const KNOWN_AGENTS = ['claude', 'codex'];
 
@@ -114,8 +115,10 @@ export function agentAccounts(receipt = readReceipt()) {
 }
 
 /** 화면이 버튼 옆 안내를 그릴 재료: 계정 수·프로그램 없음·(옛) 잠든 목록. GET /api/agents/status 와 'agents' 방송. */
-export function agentStatus(receipt = readReceipt(), root = soulRoot()) {
-  return { accounts: agentAccounts(receipt), missing: missingAgents(receipt, root), sleeping: sleepingAgents(receipt) };
+export function agentStatus(receipt = readReceipt(), root = soulRoot(), { hasAgy = () => !!agyExe() } = {}) {
+  // Gemini(P18): 중계기·영수증과 상관없이 이 PC 에 agy 가 깔려 있는지만 본다(구독 로그인은 agy 가 직접 — 계정 수는 판단 안 함)
+  const missing = [...missingAgents(receipt, root), ...(hasAgy() ? [] : ['gemini'])];
+  return { accounts: agentAccounts(receipt), missing, sleeping: sleepingAgents(receipt) };
 }
 
 /**

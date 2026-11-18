@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { buildCommand, normalize, CODEX_HOME, CLAUDE_CONFIG_DIR, assertExpected, modelForResume, keepResumeModel } from './agents.mjs';
+import { fileURLToPath } from 'node:url';
+import { buildCommand, normalize, CODEX_HOME, CLAUDE_CONFIG_DIR, AGY_HOME, assertExpected, modelForResume, keepResumeModel } from './agents.mjs';
 import { preTrust } from './trust.mjs';
 import { withFaceNote } from './facenote.mjs';
 import { titleFromPrompt, clipTitle } from './title.mjs';
@@ -36,7 +37,9 @@ const ENTER_TRIES = 3;
 // "Starting MCP servers"가 보이는 동안은 세션이 아직 준비 전이라 첫 요청을 보내지 않는다(보내면 코덱스가 큐에 넣고 상태를 못 보여 준다).
 const WORKING_RE = /(esc to interrupt|ctrl\+c to interrupt|Cogitating|Thinking…|Working \(|\(\d+s • esc|Starting MCP servers)/i;
 // 클로드 스피너 줄(2.1.26x): "✢ Propagating…  11m 11s · ↓ 21.5k tokens)" — 글리프 + 동사…  (안내줄 "esc to interrupt"는 별도 줄로 내려갔다)
-const SPINNER_RE = /^\s*[✢✶✻✽✳·•*]\s*([A-Za-z가-힣][A-Za-z가-힣 ]{1,30}…)/;
+// Gemini(agy 1.5, P18 2026-11-19 실측): "⡿  Generating..." — 점자 무늬(U+2800~28FF) + 동사 + 마침표 셋. 아래 안내줄은 "esc to cancel" 이라
+// ATTENTION_RE(Esc to cancel)에 걸리므로 이 줄을 작업 중으로 먼저 잡아야 노란불로 잘못 바뀌지 않는다.
+const SPINNER_RE = /^\s*(?:[✢✶✻✽✳·•*]\s*([A-Za-z가-힣][A-Za-z가-힣 ]{1,30}…)|[⠁-⣿]\s+([A-Za-z가-힣][A-Za-z가-힣 ]{1,30}(?:…|\.\.\.)))/;
 // 주의: 답변 본문에도 흔히 나오는 낱말("승인" 등)은 넣지 않는다 — 2026-09-10 "ISBN 승인" 답변이 노란불(확인 필요)로 오판된 사례.
 const ATTENTION_RE = /(Do you trust|trust the contents|Press t to trust|enter to review hooks|Yes, continue|Yes, proceed|\(y\/n\)|\[Y\/n\]|Press enter|Esc to cancel|Enter to confirm|Enter to select|Do you want to proceed\?|Would you like to proceed\?|Ready to submit|Submit answers|1\. Yes|허용하시겠|계속하시겠|승인하시겠|승인할까요)/i; // v2.50: AskUserQuestion 답 검토 화면(❯ 1. Submit answers)·번호 없는 승인 화면도 노란불
 // 코덱스 시작 시 업데이트 물음(대화형 3지선다) — idleCheck가 2(Skip)로 자동 응답한다
@@ -159,9 +162,9 @@ export class SessionManager {
   buffer(id) { return this.live.get(id)?.buffer || ''; }
 
   /** 새 세션: 폴더 + 에이전트·모델·사고깊이(사용자가 고른 그대로) + 첫 요청문(선택) */
-  create({ cwd, agent, model, expectModel, effort, readOnly, permission, approval, sandbox, prompt, cols = 120, rows = 36 }) {
+  create({ cwd, agent, model, expectModel, effort, readOnly, permission, approval, sandbox, mode, prompt, cols = 120, rows = 36 }) {
     if (!cwd || !fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error(`folder not found: ${cwd}`);
-    const sel = normalize({ agent, model, effort, readOnly, permission, approval, sandbox });
+    const sel = normalize({ agent, model, effort, readOnly, permission, approval, sandbox, mode });
     assertExpected(sel, expectModel);
     const cmd = buildCommand(sel, cwd);
     const id = `s${++this.seq}`;
@@ -179,15 +182,15 @@ export class SessionManager {
     this.nameSession(id, prompt);
     // Face 안내문을 첫 요청 앞에 붙인다(새 세션에만; 이어가기는 맥락에 이미 있음)
     this.wire(id, rec, proc, cols, rows, withFaceNote(prompt));
-    if (sel.agent === 'codex') this.watchCodexRollout(id, rec); else this.watchClaudeRecord(id, rec);
+    this.watchRecord(id, rec, sel.agent);
     this.save(); this.hooks.onList?.();
     return rec;
   }
   spawn(cmd, cwd, cols, rows) {
     const env = childEnv();
     // 폴더 신뢰 물음 선답(daemon/trust.mjs, 2026-09-19): CLI 가 이 폴더를 처음 볼 때 묻는 "Do you trust…" 를 미리 "예"로 적어 둔다.
-    const agent = /^codex\b/i.test(String(cmd.args?.[1] || '')) ? 'codex' : 'claude';
-    const t = preTrust({ agent, cwd, env, fallback: { claudeConfigDir: CLAUDE_CONFIG_DIR, codexHome: CODEX_HOME } });
+    const agent = cmd.agent || (/^codex\b/i.test(String(cmd.args?.[1] || '')) ? 'codex' : 'claude');
+    const t = preTrust({ agent, cwd, env, fallback: { claudeConfigDir: CLAUDE_CONFIG_DIR, codexHome: CODEX_HOME, agyHome: AGY_HOME } });
     if (t.result !== 'unchanged') this.hooks.onLog?.(`[trust] ${agent} ${cwd} → ${t.result}`);
     // 1년 열쇠(v2.84, 2026-10-15 "Login expired" 사고): 살아 있으면 클로드 세션은 30일 /login 열쇠 대신 그것을 쓴다(daemon/auth.mjs).
     if (agent === 'claude') { const k = applyLongKey(env, { configDir: CLAUDE_CONFIG_DIR }); if (k.applied) this.hooks.onLog?.('[auth] long key → session'); }
@@ -195,11 +198,11 @@ export class SessionManager {
   }
 
   /** 모델·사고깊이 바꾸기 = 재개 재시작: 현 PID 종료 → 같은 카드로 --resume / codex resume. 에이전트는 못 바꾼다. */
-  switchTo(id, { model, expectModel, effort, readOnly, permission, approval, sandbox, prompt } = {}) {
+  switchTo(id, { model, expectModel, effort, readOnly, permission, approval, sandbox, mode, prompt } = {}) {
     const rec = this.sessions.get(id); if (!rec) throw new Error(`no session: ${id}`);
     if (!rec.sessionId) throw new Error('세션 id를 아직 모릅니다(첫 메시지 뒤에 바꿀 수 있습니다)');
     // 모델을 따로 고르지 않은 재개(자동 재개·↻)는 이 세션이 실제로 쓰던 모델을 이어 간다(v2.102)
-    const base = normalize({ agent: rec.agent, model: model ?? modelForResume(rec), effort: effort ?? rec.effort, readOnly: readOnly ?? rec.readOnly, permission: permission ?? rec.permission, approval: approval ?? rec.approval, sandbox: sandbox ?? rec.sandbox });
+    const base = normalize({ agent: rec.agent, model: model ?? modelForResume(rec), effort: effort ?? rec.effort, readOnly: readOnly ?? rec.readOnly, permission: permission ?? rec.permission, approval: approval ?? rec.approval, sandbox: sandbox ?? rec.sandbox, mode: mode ?? rec.mode });
     const sel = model == null ? keepResumeModel(base, rec) : base; // 쓰던 정확한 모델이 목록에서 사라져도 재개는 그 모델 그대로(2차 검토 3번)
     assertExpected(sel, expectModel);
     const st = this.live.get(id); clearTimeout(st?.timer);
@@ -225,9 +228,9 @@ export class SessionManager {
   }
 
   /** 에이전트 바꾸기(Claude↔Codex): 같은 카드에서 다른 CLI를 새로 띄우고, 이전 대화를 첫 요청으로 넘겨 맥락을 잇는다 */
-  replaceAgent(id, { agent, model, expectModel, effort, readOnly, permission, approval, sandbox, prompt } = {}) {
+  replaceAgent(id, { agent, model, expectModel, effort, readOnly, permission, approval, sandbox, mode, prompt } = {}) {
     const rec = this.sessions.get(id); if (!rec) throw new Error(`no session: ${id}`);
-    const sel = normalize({ agent, model, effort, readOnly, permission, approval, sandbox });
+    const sel = normalize({ agent, model, effort, readOnly, permission, approval, sandbox, mode });
     assertExpected(sel, expectModel);
     const st = this.live.get(id); clearTimeout(st?.timer);
     const cols = st?.pty.cols || 120, rows = st?.pty.rows || 36;
@@ -241,7 +244,7 @@ export class SessionManager {
     Object.assign(rec, sel, { cmdline: cmd.cmdline, pid: proc.pid, pidAt: Date.now(),status: 'busy', exitCode: null, exitReason: null, switchedAt: new Date().toISOString(), sessionId: cmd.sessionId || null, recordPath: cmd.recordPath || null, resumeCmd: cmd.resumeCmd || '' });
     // 다른 에이전트로 새로 띄우는 것이므로 안내문을 이어받기 요청 앞에 붙인다
     this.wire(id, rec, proc, cols, rows, withFaceNote(prompt));
-    if (sel.agent === 'codex') this.watchCodexRollout(id, rec); else this.watchClaudeRecord(id, rec);
+    this.watchRecord(id, rec, sel.agent);
     this.save(); this.hooks.onList?.();
     return rec;
   }
@@ -348,7 +351,7 @@ export class SessionManager {
     const actLine = status === 'busy' ? (lines.find(l => WORKING_RE.test(l)) || '') : '';
     // 스피너 문구만 남긴다: 상태줄(⏵⏵ bypass permissions…, ← for agents, shift+tab to cycle)과 스피너 글리프 제거
     const legacy = actLine.split(/⏵|bypass permissions|← for agents|\(shift\+tab/)[0].replace(/[✢✶✻✽·•◦*]+/g, ' ').replace(/\(?\s*esc to interrupt\)?/i, '').replace(/ctrl\+c to interrupt/i, '').replace(/\s{2,}/g, ' ').replace(/^[\s·]+|[\s·]+$/g, '').trim().slice(0, 80);
-    const act = status === 'busy' ? (spinner ? spinner[1].trim() : legacy) : '';
+    const act = status === 'busy' ? (spinner ? (spinner[1] || spinner[2] || '').replace(/\.\.\.$/, '…').trim() : legacy) : '';
     if (act !== st.activity) { st.activity = act; this.hooks.onActivity?.(id, act); }
     if (status === 'busy' && !st.timer) st.timer = setTimeout(() => this.idleCheck(id), BUSY_WINDOW_MS);
     if (status === 'idle' && st.pendingPrompt && !st.promptSent) { // 첫 요청문: 프롬프트가 처음 보일 때 1회
@@ -533,6 +536,35 @@ export class SessionManager {
   }
 
   // 코덱스 롤아웃 파일은 첫 메시지 뒤에 생기므로 세션이 살아 있는 동안 3초마다 cwd로 짝을 맞춘다
+  /** 기록 찾기 한 곳(P18): 클로드 = 정해 둔 경로 · 코덱스 = rollout 짝짓기 · Gemini = agy brain 짝짓기 */
+  watchRecord(id, rec, agent) {
+    if (agent === 'codex') return this.watchCodexRollout(id, rec);
+    if (agent === 'gemini') return this.watchGeminiRecord(id, rec);
+    return this.watchClaudeRecord(id, rec);
+  }
+  // Gemini(agy, P18 2026-11-19): 대화 번호는 첫 요청 때 agy 가 정하고 기록은 <AGY_HOME>\brain\<번호>\.system_generated\logs\transcript.jsonl.
+  // 어느 폴더의 대화인지는 cache\conversation_metadata.json(늦게 쓰임) 또는 history.jsonl(요청마다 글·시각·폴더가 바로 적힘)로 가린다.
+  // 짝짓기 규칙은 코덱스와 같다(pickCodexRollout — 잡힌 목록은 매 차례 새로, 여럿이면 시작 순 ↔ 생긴 순).
+  watchGeminiRecord(id, rec) {
+    const started = Date.now();
+    rec.rolloutWatchAt = started;
+    const home = this.agyHome || AGY_HOME;
+    const tick = () => {
+      if (!this.sessions.has(id) || rec.recordPath || !this.live.has(id)) return;
+      try {
+        const claimed = new Set([...this.sessions.values()].map(r => r.recordPath).filter(Boolean).map(p => p.toLowerCase()));
+        const candidates = findGeminiRecords({ home, since: started, cwd: rec.cwd }).filter((c) => !claimed.has(c.file.toLowerCase()));
+        const peers = [...this.sessions.values()].filter(r => r.agent === 'gemini' && !r.recordPath && this.live.has(r.id) && normCwd(r.cwd) === normCwd(rec.cwd));
+        const hit = pickCodexRollout({ candidates, me: rec, peers });
+        if (hit) {
+          rec.sessionId = hit.id; rec.recordPath = hit.file; rec.resumeCmd = `agy --conversation ${hit.id}`;
+          this.save(); this.hooks.onList?.(); return;
+        }
+      } catch { /* retry */ }
+      setTimeout(tick, 2000);
+    };
+    setTimeout(tick, 2000);
+  }
   // P18(2026-11-18 점검): 같은 폴더에서 코덱스 대화 둘을 거의 동시에 열면 기록을 바꿔 잡거나 같은 기록을 둘이 잡았다 —
   // 이미 잡힌 기록 목록을 시작 때 한 번만 만들고, 후보가 여럿이어도 처음 본 것을 가져갔기 때문. 이제 매번 목록을 새로 만들고,
   // 후보가 여럿이면 "짝 없는 같은 폴더 코덱스 대화를 시작 순서로" ↔ "후보 기록을 생긴 순서로" 같은 자리끼리 짝짓는다.
@@ -573,6 +605,48 @@ export class SessionManager {
 /** 코덱스 기록 짝짓기(P18). candidates = 아직 아무도 잡지 않은 같은 폴더 기록 [{file,id,at}], peers = 짝 없는 같은 폴더
  *  살아 있는 코덱스 대화(me 포함). 후보가 대화 수보다 적으면 아직 다 생기지 않은 것 — 하나뿐이고 대화도 하나일 때만 바로 잡고,
  *  여럿이면 후보 수가 대화 수에 이를 때까지 기다렸다가 시작 순서 ↔ 생긴 순서로 같은 자리를 준다. */
+/** Gemini 기록 후보: since 뒤에 생긴 brain\<번호> 가운데 그 폴더(cwd)의 대화 [{file,id,at}] (P18).
+ *  폴더 판정 = conversation_metadata.json 의 WorkspaceURIs → 없으면 기록의 첫 요청 글·시각을 history.jsonl 의 같은 글·±10초 줄과 맞춤. */
+export function findGeminiRecords({ home, since, cwd }) {
+  const brain = path.join(home, 'brain');
+  let names; try { names = fs.readdirSync(brain); } catch { return []; }
+  let meta = {}; try { meta = JSON.parse(fs.readFileSync(path.join(home, 'cache', 'conversation_metadata.json'), 'utf8')).conversations || {}; } catch {}
+  let history = null;
+  const readHistory = () => {
+    if (history) return history;
+    history = [];
+    try { for (const l of fs.readFileSync(path.join(home, 'history.jsonl'), 'utf8').split('\n')) { try { const o = JSON.parse(l); if (o && o.workspace) history.push(o); } catch {} } } catch {}
+    return history;
+  };
+  const out = [];
+  for (const id of names) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) continue;
+    const dir = path.join(brain, id);
+    let st; try { st = fs.statSync(dir); } catch { continue; }
+    const born = st.birthtimeMs || st.mtimeMs;
+    if (born < since - 2000) continue;
+    const file = path.join(dir, '.system_generated', 'logs', 'transcript.jsonl');
+    if (!fs.existsSync(file)) continue;
+    let ws = null;
+    const uri = meta[id]?.summary?.WorkspaceURIs?.[0];
+    if (uri) { try { ws = fileURLToPath(uri); } catch {} }
+    if (!ws) {
+      const first = readFirstLine(file); let r = null; try { r = JSON.parse(first); } catch {}
+      const said = geminiUserText(r?.content);
+      const at = Date.parse(r?.created_at || '');
+      const h = said && at ? readHistory().find((x) => String(x.display || '').trim() === said.trim() && Math.abs(Number(x.timestamp) - at) < 10_000) : null;
+      ws = h?.workspace || null;
+    }
+    if (!ws || normCwd(ws) !== normCwd(cwd)) continue;
+    out.push({ file, id, at: born });
+  }
+  return out;
+}
+/** agy 기록의 USER_INPUT 글에서 사용자가 친 부분만(<USER_REQUEST>…</USER_REQUEST>) */
+export function geminiUserText(content) {
+  const m = /<USER_REQUEST>\n?([\s\S]*?)\n?<\/USER_REQUEST>/.exec(String(content || ''));
+  return m ? m[1] : null;
+}
 export const CODEX_PAIR_WAIT_MS = 30_000;
 export function pickCodexRollout({ candidates = [], me, peers = [], now = Date.now() }) {
   if (!candidates.length) return null;

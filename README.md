@@ -19,6 +19,7 @@
 ## 원작에서 달라진 것
 
 **새 기능**
+- **세 번째 AI — Gemini**(Antigravity CLI · Google AI Pro 구독): Claude·Codex 옆 단추, 모델 목록은 그 PC 의 `agy models` 그대로
 - 설치 화면 새 디자인(단계 지도 · 별가루 · 20칸 빛 띠)
 - 내 MCP 추가(설정 글 붙여넣기 / 칸 채우기, 키 없는 것만)
 - 시작 인트로(First developed by HSJ · Edited by McKay) · 수학 무대 10종(조절 막대·수식)
