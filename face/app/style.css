@@ -1065,8 +1065,43 @@ button.tl-pill[aria-pressed="true"] { border-color: var(--iris); background: var
 .st-share-ok::before { content: "● "; color: var(--ok); }
 .st-share-warn::before { content: "● "; color: var(--warn); }
 /* 이 PC 사용량(P18 조각 B) */
-.local-usage { font-size: 11.5px; color: var(--ink-3); padding: 2px 9px; border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; cursor: default; }
-.local-usage.over { color: var(--warn); border-color: rgba(242,200,121,.45); }
+/* 계정 공유 칩(P18 2026-11-20 — 잘 보이게 · 누르면 작은 창) */
+.local-usage { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 12px; color: var(--ink-2); background: var(--surface); padding: 3px 11px 3px 9px; border: 1px solid var(--line-2); border-radius: 999px; white-space: nowrap; cursor: pointer; }
+.local-usage:hover, .local-usage[aria-expanded="true"] { border-color: var(--iris); color: var(--ink); }
+.local-usage b { font-weight: 700; color: var(--iris); }
+.local-usage span { color: var(--ink-3); }
+.local-usage.shared span { color: var(--ink-2); }
+.local-usage svg { color: var(--iris); flex: none; }
+.local-usage.near b, .local-usage.near svg, .local-usage.near span { color: var(--warn); }
+.local-usage.over b, .local-usage.over svg, .local-usage.over span { color: var(--bad); }
+.team-pop { position: fixed; z-index: 60; width: 320px; max-width: calc(100vw - 24px); background: var(--raised); border: 1px solid var(--line-2); border-radius: 14px; padding: 14px 16px; box-shadow: 0 16px 40px rgba(0,0,0,.35); font-size: 13px; color: var(--ink); }
+.team-pop .tp-head { font-size: 15px; display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.team-pop .tp-people { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.team-pop .tp-step { display: inline-flex; align-items: center; gap: 10px; }
+.team-pop .tp-step button { width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); font-size: 16px; cursor: pointer; }
+.team-pop .tp-step button:hover { border-color: var(--iris); }
+.team-pop .tp-step b { min-width: 42px; text-align: center; font-size: 15px; }
+.team-pop .tp-quota { margin: 8px 0 10px; color: var(--ink-2); }
+.team-pop .tp-quota b { color: var(--iris); }
+.team-pop .tp-acct { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+.team-pop .tp-acct-h { font-weight: 700; margin-bottom: 6px; }
+.team-pop .tp-bar { margin: 6px 0 8px; }
+.team-pop .tp-bar-h { display: flex; justify-content: space-between; align-items: center; color: var(--ink-2); }
+.team-pop .tp-track { height: 7px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 4px 0 2px; }
+.team-pop .tp-track i { display: block; height: 100%; border-radius: 99px; background: var(--iris); }
+.team-pop .tp-track i.near { background: var(--warn); }
+.team-pop .tp-track i.over { background: var(--bad); }
+.team-pop small { color: var(--ink-3); font-size: 11.5px; }
+.team-pop .tp-note { color: var(--ink-2); line-height: 1.6; margin: 6px 0; }
+.team-pop .tp-today { color: var(--ink-3); font-size: 12px; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+.team-pop .tp-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
+.st-tl { display: inline-flex; align-items: center; gap: 6px; }
+/* 말풍선 — data-tip(P18 2026-11-20). 기본 title 대신 바로 뜬다 */
+.tip-i { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--ink-3); color: var(--ink-3); font: italic 700 10px/1 Georgia, serif; cursor: help; vertical-align: 1px; flex: none; }
+.tip-i:hover, .tip-i:focus { border-color: var(--iris); color: var(--iris); outline: none; }
+.tip-bubble { position: fixed; z-index: 90; max-width: 300px; padding: 9px 12px; border-radius: 10px; background: #1d2338; color: #eef1fb; font-size: 12.5px; line-height: 1.55; box-shadow: 0 10px 28px rgba(0,0,0,.35); pointer-events: none; white-space: normal; word-break: keep-all; }
+.tip-bubble::after { content: ''; position: absolute; left: calc(var(--ax, 50%) - 6px); bottom: -6px; border: 6px solid transparent; border-bottom: 0; border-top-color: #1d2338; }
+.tip-bubble.below::after { bottom: auto; top: -6px; border: 6px solid transparent; border-top: 0; border-bottom-color: #1d2338; }
 .st-num { width: 90px; }
 
 /* 개인 공간(P18 조각 C) */
@@ -1086,8 +1121,8 @@ button.tl-pill[aria-pressed="true"] { border-color: var(--iris); background: var
 .pf-acts { display: flex; gap: 8px; align-items: center; margin-top: 12px; } .pf-sp { flex: 1; }
 .pf-note { font-size: 11.5px !important; color: var(--ink-3) !important; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 12px !important; }
 .pf-err { color: var(--bad) !important; } .pf-empty { color: var(--ink-3) !important; }
-.local-usage.near { color: var(--warn); border-color: rgba(242,200,121,.45); }
-.local-usage.over { color: var(--bad); border-color: rgba(240,120,139,.5); }
+.local-usage.near { border-color: rgba(242,200,121,.55); }
+.local-usage.over { border-color: rgba(240,120,139,.6); }
 /* 수식(P18 — KaTeX 동봉) */
 .katex { font-size: 1.08em; }
 .katex-display { margin: .6em 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }

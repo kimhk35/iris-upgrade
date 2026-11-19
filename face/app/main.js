@@ -667,9 +667,10 @@
     finally { btn.disabled = false; btn.classList.remove('busy'); }
   }
   $('#btn-send').onclick = submit;
-  // ---------- 이 PC 사용량·공유 계정 「내 몫」(P18) ----------
-  // 혼자 쓰면(사람 수 1) 머리줄 = 「이 PC 오늘 N번」. 사람 수 N≥2 면 = 「내 몫 18% / 25%」(지금 고른 에이전트의 주간 몫,
-  // 계정 사용률 ÷ N — 데몬 share.mjs 가 이 PC 가 일하는 동안 늘어난 사용률을 쌓음). 80% 다가가면 노랑, 넘으면 빨강. 1분마다.
+  // ---------- 계정 공유(한 구독 계정을 여럿이 나눠 쓰기) · 이 PC 사용량(P18) ----------
+  // 머리줄 칩 = 「계정 공유 · 혼자 사용」 / 「계정 공유 · 4명 · 내 몫 18% / 25%」(지금 고른 에이전트의 주간 몫, 계정 사용률 ÷ N —
+  // 데몬 share.mjs 가 이 PC 가 일하는 동안 늘어난 사용률을 쌓음). 몫의 80% 부터 노랑, 넘으면 빨강. 1분마다.
+  // 2026-11-20 사용자 요청 「잘 안 보임 · 말풍선」: 칩을 누르면 작은 창(사람 수 －/＋ · 내 몫 막대 · 설명 말풍선), 설정은 계정·보안 「계정 공유」.
   const LocalUse = (() => {
     let last = null, share = null;
     const fmt = (t) => t >= 1e6 ? (t / 1e6).toFixed(1) + 'M' : t >= 1e3 ? Math.round(t / 1e3) + 'K' : String(t);
@@ -683,22 +684,18 @@
       if (n < 2 || !s) return { over: false, quota, s };
       return { over: (s.mineWeek || 0) >= quota || (s.mine5h || 0) >= quota, quota, s, near: (s.mineWeek || 0) >= quota * 0.8 };
     }
+    const ICON = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="17" cy="9" r="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M15.5 14.2c2.6-.3 4.6 1.3 5 4.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
     function draw() {
       const el = $('#local-usage'); if (!el || !last) return;
-      const n = people(), st = status(), today = last.today.requests;
+      const n = people(), st = status();
       el.hidden = false;
       el.classList.remove('over', 'near');
-      if (n >= 2 && st.s) {
-        el.textContent = `내 몫 ${P(st.s.mineWeek)} / ${P(st.quota)}`;
-        el.classList.toggle('over', st.over); el.classList.toggle('near', !st.over && st.near);
-      } else el.textContent = n >= 2 ? `내 몫 측정 준비 중 · 오늘 ${today}번` : `이 PC 오늘 ${today}번`;
-      const line = (name, s) => s ? `${name}: 내 몫 주간 ${P(s.mineWeek)} · 5시간 ${P(s.mine5h)} (계정 전체 주간 ${P(s.accountWeek)} · 5시간 ${P(s.account5h)})` : null;
-      el.title = [
-        n >= 2 ? `공유 계정 ${n}명 — 한 사람 몫 = 한도의 ${P(1 / n)} (설정 → 세션 기본값)` : '혼자 쓰는 계정(사람 수는 설정 → 세션 기본값에서)',
-        n >= 2 ? line('Claude', share?.anthropic) : null, n >= 2 ? line('Codex', share?.codex) : null,
-        `이 PC 오늘: 요청 ${today}번 · ${fmt(last.today.tokens)} 토큰 · 이번 주 ${last.week.requests}번`,
-        n >= 2 ? '같은 시간에 다른 선생님도 쓰면 양쪽에 다 잡혀 조금 많게 보일 수 있어요' : null,
-      ].filter(Boolean).join('\n');
+      el.classList.toggle('shared', n >= 2);
+      let txt;
+      if (n >= 2 && st.s) { txt = `${n}명 · 내 몫 ${P(st.s.mineWeek)} / ${P(st.quota)}`; el.classList.toggle('over', st.over); el.classList.toggle('near', !st.over && st.near); }
+      else txt = n >= 2 ? `${n}명 · 측정 준비 중` : '혼자 사용';
+      el.innerHTML = `${ICON}<b>계정 공유</b><span>${esc(txt)}</span>`;
+      if (TeamPop.isOpen()) TeamPop.render();
     }
     async function refresh(force) {
       try { last = await (await fetch('/api/usage/local' + (force ? '?force=1' : ''))).json(); } catch {}
@@ -707,7 +704,77 @@
     }
     refresh(); setInterval(refresh, 60000);
     document.addEventListener('iris:cfg-change', draw);
-    return { refresh, draw, status, people, P };
+    return { refresh, draw, status, people, P, fmt, data: () => ({ last, share }) };
+  })();
+
+  // 「계정 공유」 작은 창 — 칩 아래에 뜬다. 바깥 누르기·Esc(onEscape 맨 앞)로 닫힘.
+  const TeamPop = (() => {
+    let box = null;
+    const isOpen = () => !!box && !box.hidden;
+    const bar = (label, mine, quota, account, tip) => {
+      const w = Math.min(100, Math.round((mine || 0) / (quota || 1) * 100)), cls = (mine || 0) >= quota ? 'over' : (mine || 0) >= quota * 0.8 ? 'near' : '';
+      return `<div class="tp-bar"><div class="tp-bar-h"><span>${label} <i class="tip-i" tabindex="0" data-tip="${esc(tip)}">i</i></span><b>${LocalUse.P(mine)} / ${LocalUse.P(quota)}</b></div>
+        <div class="tp-track"><i class="${cls}" style="width:${w}%"></i></div><small>계정 전체 ${LocalUse.P(account)} 사용</small></div>`;
+    };
+    function render() {
+      if (!box) return;
+      const n = LocalUse.people(), { last, share } = LocalUse.data(), q = 1 / n;
+      const acct = (name, key) => { const s = share?.[key]; if (!s) return ''; return `<div class="tp-acct"><div class="tp-acct-h">${name}</div>
+        ${bar('주간 내 몫', s.mineWeek, q, s.accountWeek, `이번 주 이 PC가 쓴 양이에요. 한 사람 몫(한도의 ${LocalUse.P(q)})과 견줘요. 매주 한도가 새로 시작되면 0부터예요.`)}
+        ${bar('5시간 내 몫', s.mine5h, q, s.account5h, '최근 5시간 동안 이 PC가 쓴 양이에요. 5시간 한도도 사람 수로 똑같이 나눠요.')}</div>`; };
+      const body = n >= 2
+        ? ((share?.anthropic || share?.codex) ? acct('Claude 계정', 'anthropic') + acct('Codex 계정', 'codex')
+          : `<p class="tp-note">아직 잴 값이 없어요. 계정 대시보드(중계기)가 돌아가는 PC에서 AI에게 일을 시키면 몇 분 안에 채워져요. <i class="tip-i" tabindex="0" data-tip="내 몫은 계정 대시보드가 알려 주는 계정 사용률로 계산해요. 대시보드가 없는 PC에서는 잴 수 없어서 오늘 요청 횟수만 보여요.">i</i></p>`)
+        : '<p class="tp-note">지금은 혼자 쓰는 계정으로 되어 있어요. 구독 계정을 다른 선생님과 함께 쓰면 사람 수를 올려 주세요. 한도를 사람 수로 나눈 만큼이 「내 몫」이 돼요.</p>';
+      box.innerHTML = `<div class="tp-head"><b>계정 공유</b> <i class="tip-i" tabindex="0" data-tip="구독 계정 하나를 여럿이 쓸 때, 한도를 사람 수로 나눠 한 사람 몫을 정해요. 몫을 넘으면 보내기 전에 한 번 물어봐요 — 막지는 않아요.">i</i></div>
+        <div class="tp-people"><span>이 계정을 쓰는 사람</span><div class="tp-step"><button type="button" data-tp="-" aria-label="한 명 줄이기">－</button><b>${n}명</b><button type="button" data-tp="+" aria-label="한 명 늘리기">＋</button></div></div>
+        <div class="tp-quota">${n >= 2 ? `한 사람 몫 = 한도의 <b>${LocalUse.P(q)}</b>` : '혼자 사용 — 몫을 세지 않아요'}</div>
+        ${body}
+        <div class="tp-today">이 PC 오늘 요청 ${last?.today?.requests ?? 0}번 · ${LocalUse.fmt(last?.today?.tokens || 0)} 토큰 · 이번 주 ${last?.week?.requests ?? 0}번</div>
+        <div class="tp-foot"><button type="button" class="text-btn outline" data-tp="more">자세히(설정)</button></div>`;
+    }
+    function open() {
+      if (!box) {
+        box = document.createElement('div'); box.id = 'team-pop'; box.className = 'team-pop'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', '계정 공유');
+        document.body.appendChild(box);
+        box.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-tp]'); if (!b) return;
+          if (b.dataset.tp === 'more') { close(); Settings.show('account'); setTimeout(() => $('.st-team')?.scrollIntoView({ block: 'center' }), 80); return; }
+          Settings.setSharePeople(LocalUse.people() + (b.dataset.tp === '+' ? 1 : -1)); render();
+        });
+      }
+      render(); box.hidden = false;
+      const r = $('#local-usage').getBoundingClientRect();
+      box.style.top = `${Math.round(r.bottom + 8)}px`;
+      box.style.left = `${Math.round(Math.max(12, Math.min(window.innerWidth - box.offsetWidth - 12, r.left + r.width / 2 - box.offsetWidth / 2)))}px`;
+      $('#local-usage').setAttribute('aria-expanded', 'true'); Tip.hide();
+    }
+    function close() { if (!isOpen()) return false; box.hidden = true; $('#local-usage')?.setAttribute('aria-expanded', 'false'); return true; }
+    $('#local-usage')?.addEventListener('click', () => (isOpen() ? close() : open()));
+    document.addEventListener('pointerdown', (e) => { if (isOpen() && !e.target.closest('#team-pop, #local-usage')) close(); });
+    return { open, close, isOpen, render };
+  })();
+
+  // 말풍선 — data-tip 이 있는 것에 마우스를 올리거나(바로) 키보드로 고르면 뜬다. 창 가장자리에서 넘치지 않게 위·아래를 고른다.
+  const Tip = (() => {
+    const el = document.createElement('div'); el.className = 'tip-bubble'; el.setAttribute('role', 'tooltip'); el.hidden = true; document.body.appendChild(el);
+    let curT = null;
+    function show(t) {
+      const text = t?.getAttribute('data-tip'); if (!text) return;
+      curT = t; el.textContent = text; el.hidden = false;
+      const r = t.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight;
+      const below = r.top < h + 16;
+      el.classList.toggle('below', below);
+      el.style.left = `${Math.round(Math.max(10, Math.min(window.innerWidth - w - 10, r.left + r.width / 2 - w / 2)))}px`;
+      el.style.top = `${Math.round(below ? r.bottom + 10 : r.top - h - 10)}px`;
+      el.style.setProperty('--ax', `${Math.round(r.left + r.width / 2 - parseFloat(el.style.left))}px`);
+    }
+    function hide() { el.hidden = true; curT = null; }
+    document.addEventListener('mouseover', (e) => { const t = e.target.closest?.('[data-tip]'); if (t && t !== curT) show(t); else if (!t && curT) hide(); });
+    document.addEventListener('focusin', (e) => { const t = e.target.closest?.('[data-tip]'); if (t) show(t); });
+    document.addEventListener('focusout', hide);
+    document.addEventListener('scroll', hide, true);
+    return { show, hide };
   })();
   function interrupt() { const s = cur(); if (!s || s.status !== 'busy') return; send({ type: 'input', id: s.id, data: '\x1b' }); }
   document.addEventListener('click', (e) => { if (e.target.closest('.stop-btn')) interrupt(); });
@@ -821,6 +888,7 @@
     const now = Date.now(); if (now - lastEscAt < 300) return; lastEscAt = now;
     if (renaming) { renaming.cancel(); return; }      // 이름 고치는 중 Esc = 고치기 취소만(작업 중단 아님, v2.85)
     if (RowMenu.close()) return;                       // 줄 메뉴(⋯)가 떠 있으면 Esc = 메뉴만 닫기(P18 2026-11-19)
+    if (TeamPop.close()) return;                       // 「계정 공유」 작은 창이 떠 있으면 Esc = 창만 닫기(P18 2026-11-20)
     if (Tutorial.isOpen()) { Tutorial.back(); return; } // 튜토리얼 위에서 Esc = 그 안의 한 단계 뒤로만(크게 보기 닫기·역할 다시 고르기) — 작업 중단으로 새지 않는다(v2.90 → v2.93)
     if (Voice.cancel()) return;                       // 🎤 녹음 중 Esc = 녹음 버림
     if (Settings.isOpen() && window.OntologyView?.back?.()) return; // 온톨로지에서 역할을 골랐거나 검색 중이면 Esc = 한 단계 뒤로만(서랍은 그대로, v2.91)

@@ -22,7 +22,7 @@
     <div class="top-right">
       <span id="link-dot" class="link-dot" title="데몬 연결 상태"></span>
       <button id="mem" class="mem" hidden aria-label="메모리 사용량"></button>
-      <span id="local-usage" class="local-usage" hidden></span>
+      <button id="local-usage" class="local-usage" type="button" hidden aria-haspopup="dialog" aria-expanded="false" data-tip="계정 공유 — 구독 계정 하나를 여럿이 쓸 때, 한도를 사람 수로 나눠 한 사람 몫을 정해요. 누르면 사람 수를 바꾸고 내 몫을 자세히 볼 수 있어요."></button>
       <button id="limits" class="limits" title="My Agent 대시보드 열기/닫기 (Ctrl+D)"></button>
       <span id="mod-btns" class="mod-btns" aria-label="확장 모듈"></span>
       <button id="btn-settings" class="icon-btn" title="설정 (Ctrl+,)"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M10.3 3h3.4l.5 2.3a7.4 7.4 0 0 1 1.9 1.1l2.2-.8 1.7 3-1.8 1.5a7.6 7.6 0 0 1 0 2.2l1.8 1.5-1.7 3-2.2-.8a7.4 7.4 0 0 1-1.9 1.1L13.7 21h-3.4l-.5-2.3a7.4 7.4 0 0 1-1.9-1.1l-2.2.8-1.7-3 1.8-1.5a7.6 7.6 0 0 1 0-2.2L4 10.6l1.7-3 2.2.8a7.4 7.4 0 0 1 1.9-1.1z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.8" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
@@ -57,9 +57,6 @@
         <section class="st-grp"><h3><span class="chip codex">Codex</span></h3>
           <div class="st-opt"><span class="st-opt-text">승인<small>명령을 실행하기 전에 물을지</small></span><select id="st-approval" class="pick"></select></div>
           <div class="st-opt"><span class="st-opt-text">샌드박스<small>파일·네트워크에 닿을 수 있는 범위</small></span><select id="st-sandbox" class="pick"></select></div></section>
-        <section class="st-grp"><h3>공유 계정 사용량</h3>
-          <div class="st-opt"><span class="st-opt-text">이 계정을 쓰는 사람 수<small>구독 계정을 여러 선생님이 나눠 쓰면 사람 수를 적으세요. 주간·5시간 한도를 사람 수로 나눈 만큼이 「내 몫」이 되고, 넘으면 보내기 전에 한 번 묻습니다(막지는 않음). 1 = 혼자 씀(끔)</small></span><input id="st-people" type="number" min="1" max="50" step="1" class="pick st-num"></div>
-          <div class="st-opt"><span class="st-opt-text">내 몫을 세는 방법<small>이 PC 가 AI 에게 일을 시키는 동안 늘어난 계정 사용률을 이 PC 몫으로 쌓습니다. 같은 시간에 다른 선생님도 쓰면 양쪽에 다 잡혀 조금 많게 보일 수 있어요(덜 쓰게 되는 쪽). 매주 한도가 새로 시작되면 0 부터.</small></span></div></section>
         <section class="st-grp"><h3>다시 켤 때</h3>
           <label class="st-opt"><span class="st-opt-text">끊긴 세션 이어 열기<small>IRIS를 켠 채 PC가 꺼졌거나 갑자기 닫힌 세션을 다음 실행 때 같은 카드에서 다시 엽니다</small></span><input id="st-autoresume" class="sw" type="checkbox"></label>
           <p class="st-hint"><b>켬 권장</b> · 일을 마치면 세션을 닫는 데 익숙한 터미널 사용자. 갑자기 꺼졌을 때만 이어 줍니다.</p>
@@ -100,6 +97,11 @@
           <div class="st-opt"><span class="st-opt-text"><span class="st-share-ok">IRIS 대화는 이 PC 안에만 남습니다</span><small>IRIS 에서 한 대화 기록·만든 파일은 이 컴퓨터에 저장되고, 구독 계정의 대화 목록(웹·앱)에는 남지 않습니다. 같은 계정을 쓰는 다른 선생님의 화면에 보이지 않습니다. (AI 가 답하려면 요청 글은 AI 회사 서버로 보내집니다.)</small></span></div>
           <div class="st-opt"><span class="st-opt-text"><span class="st-share-warn">웹·앱(claude.ai · chatgpt.com)의 대화는 서로 보입니다</span><small>같은 계정으로 웹이나 휴대폰 앱에서 한 대화는 그 계정을 쓰는 모두의 목록에 남습니다. 개인적인 일은 IRIS 에서 하거나, 웹에서는 <b>Claude 「시크릿 채팅」</b> · <b>ChatGPT 「임시 채팅」</b>을 켜고 쓰세요(목록에 남지 않습니다).</small></span></div>
           <div class="st-opt"><span class="st-opt-text"><span class="st-share-warn">사용량은 함께 씁니다</span><small>한 계정의 주간·5시간 한도를 모두가 나눠 씁니다. 머리줄의 배터리는 계정 전체 남은 양입니다.</small></span></div></section>
+        <!-- P18(2026-11-20 사용자 요청 「계정 공유가 잘 안 보임 · 말풍선」): 사람 수 칸을 세션 기본값에서 이 묶음 아래로 옮김. 머리줄 「계정 공유」 칩·작은 창과 같은 값(cfg.sharePeople) -->
+        <section class="st-grp st-team"><h3>계정 공유 — 구독 계정 하나를 여럿이 나눠 쓰기</h3>
+          <div class="st-opt"><span class="st-opt-text"><span class="st-tl">이 계정을 쓰는 사람 수 <i class="tip-i" tabindex="0" data-tip="구독 계정 하나를 몇 명이 함께 쓰는지 적어요. 주간·5시간 한도를 사람 수로 나눈 만큼이 「내 몫」이 돼요. 1명이면 몫을 세지 않아요(혼자 사용).">i</i></span><small>머리줄 「계정 공유」 칩을 눌러도 바꿀 수 있어요. 1 = 혼자 사용</small></span><input id="st-people" type="number" min="1" max="50" step="1" class="pick st-num"></div>
+          <div class="st-opt"><span class="st-opt-text"><span class="st-tl">내 몫을 넘으면 <i class="tip-i" tabindex="0" data-tip="보내기 전에 「내 몫을 넘었어요」 확인 창이 한 번 떠요. 그래도 보낼 수 있어요 — 막지는 않아요. 칩은 몫의 80%부터 노랑, 넘으면 빨강이에요.">i</i></span><small>보내기 전에 한 번 물어봐요(막지는 않아요)</small></span></div>
+          <div class="st-opt"><span class="st-opt-text"><span class="st-tl">내 몫을 세는 방법 <i class="tip-i" tabindex="0" data-tip="이 PC가 AI에게 일을 시키는 동안 늘어난 계정 사용률을 이 PC 몫으로 쌓아요. 같은 시간에 다른 선생님도 쓰면 양쪽에 다 잡혀 조금 많게 보일 수 있어요(덜 쓰게 되는 쪽). 매주 한도가 새로 시작되면 0부터. 계정 대시보드(중계기)가 있는 PC에서만 잴 수 있어요.">i</i></span><small>이 PC가 일하는 동안 늘어난 계정 사용률만 내 몫으로 쌓아요</small></span></div></section>
       </div>
       <div class="st-pane" data-pane="about" hidden>
         <div class="st-pane-h"><h2>업데이트·정보</h2></div>

@@ -131,6 +131,24 @@ try {
   await shot(p, 'light', []);
   await theme(p, 'indigo');
 
+  // 9) 계정 공유(4명) — 작은 창 · 말풍선 · 설정 칸. 사용률은 가짜 값(데몬 share.mjs 모양)
+  if (!only.length || only.some((x) => x.startsWith('share'))) {
+    await p.route('**/api/usage/share', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ anthropic: { mineWeek: 0.18, mine5h: 0.12, accountWeek: 0.52, account5h: 0.31 }, codex: { mineWeek: 0.21, mine5h: 0.26, accountWeek: 0.64, account5h: 0.4 } }) }));
+    await p.evaluate(() => Settings.setSharePeople(4)); await p.evaluate(() => document.dispatchEvent(new CustomEvent('iris:cfg-change')));
+    await p.evaluate(async () => { const r = await fetch('/api/usage/share'); return r.ok; }); await sleep(300);
+    await p.reload(); await sleep(2500);
+    await p.locator('#local-usage').click(); await sleep(600);
+    await shot(p, 'share', []);
+    await p.locator('#team-pop .tip-i').first().hover(); await sleep(400);
+    await shot(p, 'share-tip', []);
+    await p.keyboard.press('Escape'); await sleep(300);
+    await p.evaluate(() => Settings.show('account')); await sleep(700);
+    await p.evaluate(() => document.querySelector('.st-team')?.scrollIntoView({ block: 'center' })); await sleep(300);
+    await p.locator('.st-team .tip-i').first().hover(); await sleep(400);
+    await shot(p, 'share-set', []);
+    await p.evaluate(() => { Settings.hide(); Settings.setSharePeople(1); });
+  }
+
   // 8) 확인용: IRIS 안 사용 설명서 서랍 · 정보 창(Developer)
   if (!only.length || only.includes('drawer') || only.includes('about')) {
     await p.evaluate(() => Settings.show('about')); await sleep(600);

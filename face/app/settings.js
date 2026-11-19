@@ -482,6 +482,12 @@ window.Settings = (() => {
   function show(p) { if (!open) opts.onShow?.(); open = true; $('#settings').hidden = false; $('#btn-settings').classList.add('active'); if (PANES.includes(p)) pane = p; showPane(pane); renderPanel(); }
   function hide() { open = false; $('#settings').hidden = true; $('#btn-settings').classList.remove('active'); destroyPreviews(); }
   function pick(patch) { Object.assign(cfg, patch); applyAll(); save(); renderPanel(); }
+  /** 계정 공유 사람 수(1~50) — 설정 칸과 머리줄 「계정 공유」 작은 창(main.js TeamPop)이 같은 길로 저장한다. */
+  function setSharePeople(n) {
+    const v = Math.max(1, Math.min(50, Math.round(Number(n) || 1)));
+    const inp = $('#st-people'); if (inp) inp.value = v;
+    pick({ sharePeople: v }); document.dispatchEvent(new CustomEvent('iris:cfg-change')); return v;
+  }
 
   function init(o) {
     opts = o || {};
@@ -501,7 +507,7 @@ window.Settings = (() => {
     $('#st-math').addEventListener('input', onMathInput);
     $('#st-math').addEventListener('change', (e) => { if (e.target.id === 'st-math-f') { cfg.math = { ...cfg.math, formula: e.target.checked }; applyStage(); } save(); });
     $('#st-intro').addEventListener('change', (e) => pick({ intro: e.target.checked }));
-    $('#st-people').addEventListener('change', (e) => { const v = Math.max(1, Math.min(50, Math.round(Number(e.target.value) || 1))); e.target.value = v; pick({ sharePeople: v }); document.dispatchEvent(new CustomEvent('iris:cfg-change')); });
+    $('#st-people').addEventListener('change', (e) => setSharePeople(e.target.value));
     $('#st-people').addEventListener('keydown', (e) => e.stopPropagation());
     $('#st-remeasure').addEventListener('click', () => { IrisStars.calibrate().then((st) => { if (open) renderStage(st); }); renderStage(IrisStars.status()); });
     $('#st-fps').addEventListener('click', (e) => { const chip = e.target.closest('.st-chip[data-fps]'); if (!chip) return; IrisStars.configure({ profile: { fps: Number(chip.dataset.fps), dprCap: 1 } }); renderStage(IrisStars.status()); });
@@ -542,5 +548,5 @@ window.Settings = (() => {
     fetch('/api/health').then(r => r.json()).then(async (h) => { health = h; applyMaker(); loadLimits(); await pullServer(); applyAll(); }).catch(() => {});
     loadLimits(); setInterval(loadLimits, 60000);
   }
-  return { init, show, hide, about, showPane, pane: () => pane, isOpen: () => open, get: () => cfg, health: () => health, refreshModules: () => { if (open) renderMods(); }, installModule: (name) => modAct(name, 'install'), isInstalling: (name) => installing.has(name), onUpdate, setUpdate, showUpdateResult, setAuth, onAuth };
+  return { init, show, hide, about, showPane, setSharePeople, pane: () => pane, isOpen: () => open, get: () => cfg, health: () => health, refreshModules: () => { if (open) renderMods(); }, installModule: (name) => modAct(name, 'install'), isInstalling: (name) => installing.has(name), onUpdate, setUpdate, showUpdateResult, setAuth, onAuth };
 })();
