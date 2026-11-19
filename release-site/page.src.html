@@ -44,6 +44,8 @@ h2 small { display: block; font-size: 14px; font-weight: 400; color: var(--sub);
 .manual p { margin: 0 0 12px; color: #c3cbe8; font-size: 15px; }
 .btn { display: inline-block; background: var(--gold); color: #1a1408; font-weight: 800; text-decoration: none; border-radius: 12px; padding: 11px 20px; }
 .btn:hover { background: var(--gold2); }
+.btn.ghost { background: transparent; color: var(--gold2); border: 1px solid rgba(243,199,124,.5); margin-left: 8px; }
+.btn.ghost:hover { background: rgba(243,199,124,.12); }
 .soon { margin-top: 16px; background: rgba(217,154,62,.08); border: 1px solid rgba(217,154,62,.35); border-radius: 14px; padding: 14px 18px; font-size: 14.5px; color: #d9cbb0; }
 .soon b { color: var(--gold2); }
 .origin { margin-top: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; }
@@ -71,6 +73,7 @@ footer .sig { font-family: 'Segoe Script','Brush Script MT',cursive; font-size: 
       <span class="chip">원본 <a href="https://iris-workspace.com/" target="_blank" rel="noopener">iris-workspace.com</a> · 만든 사람 <b>HSJ</b></span>
       <span class="chip">Developer <b>McKay</b></span>
     </div>
+    <div style="margin-top:22px"><a class="btn" href="#install">설치 파일 받기</a><a class="btn ghost" href="{{PDF}}" download>사용 설명서</a></div>
   </div>
 </header>
 
@@ -82,6 +85,16 @@ footer .sig { font-family: 'Segoe Script','Brush Script MT',cursive; font-size: 
     <div class="stat"><b>29쪽</b><span>그림 설명서</span></div>
   </div>
 
+  <h2 id="install">설치 파일<small>판 2.1.0 · 윈도 10/11 · 570MB</small></h2>
+  <div class="manual">
+    <div>
+      <h3>IRIS 고도화판 2.1.0 받기</h3>
+      <p>받은 zip 을 <b>오른쪽 클릭 → 속성 → 「차단 해제」</b> 체크 → 압축 풀기 → <b>IRIS-설치.cmd</b> 두 번 클릭. 구독 계정 로그인만 하면 나머지는 저절로 끝나요. 막히면 아래 「설치가 안 되면」을 보세요.</p>
+      <a class="btn" href="https://github.com/kimhk35/iris-upgrade/releases/download/iris-installer--v2.1.0/IRIS-Setup_v2.1.0_2026-11-19.zip">설치 파일 받기 (570MB)</a>
+      <a class="btn ghost" href="https://github.com/kimhk35/iris-upgrade/releases/tag/iris-installer--v2.1.0" target="_blank" rel="noopener">릴리스 노트</a>
+    </div>
+  </div>
+
   <h2>사용 설명서<small>설치부터 단축키까지, 그림과 함께 29쪽</small></h2>
   <div class="manual">
     <div>
@@ -90,7 +103,7 @@ footer .sig { font-family: 'Segoe Script','Brush Script MT',cursive; font-size: 
       <a class="btn" href="{{PDF}}" download>설명서 PDF 받기 (5MB)</a>
     </div>
   </div>
-  <div class="soon"><b>설치 파일은 준비 중이에요.</b> 고도화판 전용 업데이트 주소로 옮기는 작업이 끝나면 이 자리에 내려받기 단추가 생겨요.</div>
+  <div class="soon"><b>업데이트는 이렇게 —</b> 2.1.0부터 IRIS 의 「업데이트」는 고도화판 릴리스만 봐요(원작 판으로 덮이지 않아요). 새 판이 나오면 IRIS 가 이 홈페이지에서 받아 새로 설치하라고 알려 줘요. 내 폴더와 자료는 그대로 남아요.</div>
 
   <h2>새로 생긴 기능<small>원작 IRIS 에는 없고 고도화판에서 더한 것</small></h2>
   <div class="cards">
