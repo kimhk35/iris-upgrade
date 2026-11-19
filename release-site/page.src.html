@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IRIS 고도화판</title>
+<meta name="description" content="IRIS 고도화판 업데이트 정리와 사용 설명서 — 원본 iris-workspace.com(HSJ) · Developer McKay">
+<!-- 원본 = release-site/page.src.html → build.py 가 index.html(게시용)·바탕화면판을 만든다. 원작 © Sejun Ham · MIT -->
+<style>
+/* 2026-11-20 사용자 결정: 대문 = 나선 은하(시안 A) · 검은 배경 — 페이지 전체를 밤하늘 한 장으로 */
+:root { --ink:#e8ebf5; --sub:#9aa3bd; --line:#1e2333; --paper:#000; --card:#0b0d16; --navy:#101735; --gold:#d99a3e; --gold2:#f3c77c; --blue:#8ea6ff; --green:#5fd3a0; --coral:#ff9a5c; --violet:#b197ff; }
+* { box-sizing: border-box; }
+html { background: #000; }
+body { margin: 0; color: var(--ink); background: #000; font: 400 16px/1.75 'Pretendard','Malgun Gothic','Apple SD Gothic Neo',sans-serif; word-break: keep-all; }
+a { color: var(--blue); }
+.hero { position: relative; background: #000; color: #fff; height: 100vh; min-height: 620px; max-height: 1000px; display: flex; align-items: flex-start; justify-content: center; text-align: center; padding: 11vh 16px 0; overflow: hidden; }
+.hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.hero::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 160px; background: linear-gradient(rgba(0,0,0,0), #000); pointer-events: none; }
+.hero > div { position: relative; z-index: 1; max-width: 760px; }
+h1 { filter: drop-shadow(0 0 22px rgba(0,0,0,.9)) drop-shadow(0 0 30px rgba(240,190,100,.3)); }
+.hero p { text-shadow: 0 0 12px #000, 0 0 4px #000; }
+.hero .chip { background: rgba(0,0,0,.45); }
+.kicker { letter-spacing: .28em; font-size: 13px; color: var(--gold2); }
+h1 { font-family: Georgia,'Times New Roman',serif; font-weight: 700; font-size: clamp(56px, 12vw, 96px); letter-spacing: .14em; line-height: 1; margin: 18px 0 6px; background: linear-gradient(180deg,#ffe7b0,#d99a3e); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero p { color: #d7ddf3; margin: 6px 0; }
+.credits { display: inline-flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 18px; }
+.chip { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.25); border-radius: 999px; padding: 6px 14px; font-size: 14px; color: #fff; backdrop-filter: blur(4px); }
+.chip a { color: var(--gold2); }
+main { max-width: 920px; margin: 0 auto; padding: 40px 16px 64px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: -40px 0 36px; position: relative; z-index: 2; }
+.stat { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; text-align: center; }
+.stat b { display: block; font-size: 30px; color: var(--gold2); line-height: 1.2; }
+.stat span { font-size: 13px; color: var(--sub); }
+h2 { font-size: 26px; margin: 44px 0 6px; }
+h2 small { display: block; font-size: 14px; font-weight: 400; color: var(--sub); margin-top: 2px; }
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; }
+.card h3 { margin: 0 0 4px; font-size: 17px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; color: #fff; }
+.card h3 em { font-style: normal; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 9px; background: rgba(142,166,255,.14); color: var(--blue); }
+.card p { margin: 0; font-size: 14.5px; color: #b9c0d6; }
+.card.new h3 em { background: rgba(255,154,92,.14); color: var(--coral); }
+.manual { display: flex; gap: 22px; align-items: center; background: linear-gradient(135deg,#141a3a,#0b0d16); border: 1px solid #2a3150; color: #e6ebff; border-radius: 20px; padding: 24px 26px; margin-top: 16px; }
+.manual h3 { margin: 0 0 4px; font-size: 21px; color: #fff; }
+.manual p { margin: 0 0 12px; color: #c3cbe8; font-size: 15px; }
+.btn { display: inline-block; background: var(--gold); color: #1a1408; font-weight: 800; text-decoration: none; border-radius: 12px; padding: 11px 20px; }
+.btn:hover { background: var(--gold2); }
+.soon { margin-top: 16px; background: rgba(217,154,62,.08); border: 1px solid rgba(217,154,62,.35); border-radius: 14px; padding: 14px 18px; font-size: 14.5px; color: #d9cbb0; }
+.soon b { color: var(--gold2); }
+.origin { margin-top: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; }
+.origin dl { display: grid; grid-template-columns: 110px 1fr; gap: 6px 12px; margin: 0; font-size: 15px; }
+.origin dt { color: var(--sub); }
+.origin dd { margin: 0; }
+footer { text-align: center; color: var(--sub); font-size: 13px; padding: 30px 16px 40px; border-top: 1px solid var(--line); }
+footer .sig { font-family: 'Segoe Script','Brush Script MT',cursive; font-size: 22px; color: var(--gold2); display: block; margin-bottom: 4px; }
+@media (max-width: 720px) {
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .cards { grid-template-columns: 1fr; }
+  .manual { flex-direction: column; align-items: flex-start; }
+  .origin dl { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<header class="hero">
+  <canvas id="galaxy" aria-hidden="true"></canvas>
+  <div>
+    <div class="kicker">AI 비서 작업실 · 고도화판</div>
+    <h1>IRIS</h1>
+    <p>Claude · Codex · Gemini 세 AI 비서를 내 PC 한 화면에서</p>
+    <div class="credits">
+      <span class="chip">원본 <a href="https://iris-workspace.com/" target="_blank" rel="noopener">iris-workspace.com</a> · 만든 사람 <b>HSJ</b></span>
+      <span class="chip">Developer <b>McKay</b></span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="stats">
+    <div class="stat"><b>3</b><span>함께 일하는 AI</span></div>
+    <div class="stat"><b>21</b><span>테마</span></div>
+    <div class="stat"><b>10</b><span>수학 무대</span></div>
+    <div class="stat"><b>29쪽</b><span>그림 설명서</span></div>
+  </div>
+
+  <h2>사용 설명서<small>설치부터 단축키까지, 그림과 함께 29쪽</small></h2>
+  <div class="manual">
+    <div>
+      <h3>처음부터 차근차근, IRIS 사용 설명서</h3>
+      <p>처음 30분 따라 하기 · 요청 예시 10가지 · 확인 카드 읽는 법 · 영어 오류 메시지 풀이까지. IRIS 안에서는 ⚙ 설정 → 업데이트·정보 → 「사용 설명서」로도 열려요.</p>
+      <a class="btn" href="{{PDF}}" download>설명서 PDF 받기 (5MB)</a>
+    </div>
+  </div>
+  <div class="soon"><b>설치 파일은 준비 중이에요.</b> 고도화판 전용 업데이트 주소로 옮기는 작업이 끝나면 이 자리에 내려받기 단추가 생겨요.</div>
+
+  <h2>새로 생긴 기능<small>원작 IRIS 에는 없고 고도화판에서 더한 것</small></h2>
+  <div class="cards">
+    <div class="card new"><h3>세 번째 AI — Gemini <em>11.19</em></h3><p>Claude·Codex 옆에 Gemini 단추. 모델 목록은 그 PC 프로그램이 주는 그대로라 이름과 실제 모델이 늘 같아요. 사용량도 대시보드·머리줄에.</p></div>
+    <div class="card new"><h3>캔버스 <em>11.12</em></h3><p>AI가 만드는 파일이 대화 오른쪽에 실시간으로. 고칠 부분을 골라 「이 부분 고쳐 줘」.</p></div>
+    <div class="card"><h3>수식 · 한글/워드 진짜 수식 <em>11.12</em></h3><p>대화 화면의 수식을 교과서처럼 그리고, 한글·워드 문서에는 고칠 수 있는 진짜 수식 개체로 넣어요.</p></div>
+    <div class="card"><h3>표절·인용 점검 <em>11.12</em></h3><p>참고 자료와 겹치는 문장, 빠진 출처, 본문 인용과 참고문헌 목록의 어긋남을 찾아 줘요.</p></div>
+    <div class="card"><h3>내 MCP 추가 <em>11.10</em></h3><p>AI에게 새 도구(MCP)를 설정 글 붙여넣기나 칸 채우기로 더해요. 비밀 열쇠가 필요한 것은 안전을 위해 받지 않아요.</p></div>
+    <div class="card"><h3>구독 계정 나눠 쓰기 <em>11.12</em></h3><p>안내 · 이 PC 사용량 · 사람 수로 나눈 「내 몫」 · 이름과 PIN으로 잠그는 개인 공간.</p></div>
+    <div class="card new"><h3>작업목록 고정 · 삭제 <em>11.19</em></h3><p>자주 보는 대화를 맨 위에 고정, 목록에서만 삭제, 끝난 대화 한꺼번에 정리.</p></div>
+    <div class="card new"><h3>사용 설명서 · 튜토리얼 <em>11.20</em></h3><p>29쪽 그림 설명서를 PDF와 IRIS 안에서. 첫 실행 튜토리얼에 「고도화판 새 기능」 장면.</p></div>
+  </div>
+
+  <h2>더 예뻐진 화면<small>꾸밈과 대시보드</small></h2>
+  <div class="cards">
+    <div class="card"><h3>금빛 시작 인트로 <em>11.19</em></h3><p>별이 금빛 IRIS 글자와 홍채 고리로 모였다 흩어지고, 그 아래 필기체 서명 「First developed by HSJ · Edited by McKay」.</p></div>
+    <div class="card"><h3>테마 21종 <em>11.19</em></h3><p>어두운 테마 14종 · 밝은 테마 7종. 대시보드도 IRIS 테마를 그대로 따라가요.</p></div>
+    <div class="card"><h3>수학 무대 10종 <em>11.10</em></h3><p>장미 곡선 · 로렌츠 끌개 · 해바라기 나선 · 4차원 정육면체 … 조절 막대와 수식까지, 수업 도입 화면으로.</p></div>
+    <div class="card"><h3>My Agent 대시보드 · 배터리 <em>11.19</em></h3><p>계정별 5시간·주간 한도를 칸마다 색으로. 요금제에 실제로 있는 한도만 보여 줘요.</p></div>
+    <div class="card"><h3>새 설치 화면</h3><p>단계 지도 · 별가루 · 빛 띠로 지금 어디쯤인지 한눈에.</p></div>
+    <div class="card"><h3>정보 창 표기 <em>11.20</em></h3><p>원본 주소(iris-workspace.com · HSJ)와 Developer McKay 를 함께 적었어요. 원작 저작권 표시는 그대로.</p></div>
+  </div>
+
+  <h2>더 안전하고 튼튼하게<small>보안 · 학교 망 · 안정성</small></h2>
+  <div class="cards">
+    <div class="card"><h3>보안 보강 <em>11.11</em></h3><p>다른 웹사이트가 내 PC의 IRIS를 몰래 조종하지 못하게 출처·주소 검사, 미리보기 격리, 오피스 매크로 차단.</p></div>
+    <div class="card"><h3>학교·회사 망 대비 <em>11.18</em></h3><p>윈도의 프록시·보안 인증서 설정을 저절로 따르고, 설치 검은 창은 한국어로 안내해요.</p></div>
+    <div class="card"><h3>업데이트 자동 되돌리기</h3><p>새 판이 제대로 켜지지 않으면 직전 판으로 저절로 돌아가요.</p></div>
+    <div class="card"><h3>자잘한 고침</h3><p>끝난 대화에 보내면 자동 재개 · 한글 반쪽 깨짐 · Codex 기록 짝짓기 · 기록 파일 크기 제한.</p></div>
+  </div>
+
+  <h2 id="sac">설치가 안 되면<small>IRIS-설치.cmd 를 눌렀는데 아무 일도 없거나 "차단되었습니다" 창이 뜰 때</small></h2>
+  <div class="cards">
+    <div class="card"><h3>왜 막히나요?</h3><p>윈도의 <b>스마트 앱 컨트롤</b>이 인터넷에서 받은 실행 파일을 막는 거예요. 컴퓨터나 IRIS가 고장 난 것이 아니에요.</p></div>
+    <div class="card"><h3>방법 ㉮ 차단 해제 (권장)</h3><p>zip 오른쪽 클릭 → 속성 → 아래쪽 「차단 해제」 체크 → 확인. 풀어 둔 폴더는 지우고 zip을 다시 푼 뒤 IRIS-설치.cmd 를 눌러요.</p></div>
+    <div class="card"><h3>방법 ㉯ 주소창에서 실행</h3><p>zip을 푼 폴더의 탐색기 주소창을 누르고 <b>cmd /c IRIS-설치.cmd</b> 를 쳐 넣은 뒤 Enter.</p></div>
+    <div class="card"><h3>그래도 안 되면</h3><p>탐색기 주소창에 <b>%LOCALAPPDATA%\IRIS-Installer</b> 를 넣으면 설치 기록(bootstrap.log)이 있는 폴더가 열려요. 도움을 청할 때 함께 보내 주세요.</p></div>
+  </div>
+
+  <h2>원작과 고도화판</h2>
+  <div class="origin">
+    <dl>
+      <dt>원본</dt><dd><a href="https://iris-workspace.com/" target="_blank" rel="noopener">https://iris-workspace.com/</a></dd>
+      <dt>만든 사람</dt><dd>HSJ (함세준 · Sejun Ham)</dd>
+      <dt>Developer</dt><dd>McKay · 고도화판 개발</dd>
+      <dt>허가서</dt><dd>MIT — 원작자의 허락을 받아 만든 고도화판이며, 원작 저작권 표시를 그대로 지킵니다.</dd>
+    </dl>
+  </div>
+</main>
+
+<footer>
+  <span class="sig">First developed by HSJ · Edited by McKay</span>
+  IRIS 원작 © Sejun Ham · MIT · 고도화판 수정 © McKay · 2026-11-20 정리
+</footer>
+<script>
+/* 대문 은하 = 시안 D(확인용\대문-은하-시안2.html, 2026-11-20 사용자 선택) — 검은 바탕 · 비스듬히 기운 나선 은하.
+   빛무리(흐린 층) · 먼지띠 · 분홍 성운 · 금빛 중심을 한 번 그려 두고 통째로 천천히 돌린다(가벼움).
+   휴대폰은 은하 그림을 작게, 움직임 줄이기 설정이면 한 장만, 대문이 화면 밖이면 멈춘다. */
+(() => {
+  const cv = document.getElementById('galaxy'); if (!cv) return;
+  const cx = cv.getContext('2d'), still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let W, H, D, gal, dust = [], t = 0, on = true;
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const gauss = () => { let s = 0; for (let i = 0; i < 4; i++) s += Math.random(); return (s - 2) / 1.2; };
+  function makeGalaxy() {
+    const GS = Math.round(Math.min(W < 700 ? 1100 : 1800, Math.max(W, H) * 1.1 * D));
+    const c = document.createElement('canvas'); c.width = c.height = GS;
+    const g = c.getContext('2d'), R = GS / 2, ARMS = 2, TW = 5.2;
+    const armAt = (d, k, j) => k * Math.PI + Math.log(1 + d * 9) * TW / Math.log(10) + j;   // 로그 나선
+    const P = (d, a) => [R + Math.cos(a) * d * R, R + Math.sin(a) * d * R];
+    const blob = (x, y, r, col, al) => { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, col.replace('A', al)); gr.addColorStop(1, col.replace('A', 0)); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); };
+    g.globalCompositeOperation = 'lighter';
+    blob(R, R, R * .95, 'rgba(70,90,170,A)', .22);                     // 원반 전체의 흐린 빛
+    blob(R, R, R * .55, 'rgba(150,140,200,A)', .14);
+    for (let i = 0; i < 2600; i++) {                                     // 팔을 따라 번지는 빛무리
+      const d = Math.pow(Math.random(), .85) * .95 + .05, a = armAt(d, i % ARMS, gauss() * .38), [x, y] = P(d + gauss() * .02, a);
+      blob(x, y, R * rnd(.025, .07) * (1 - d * .4), d < .3 ? 'rgba(255,215,160,A)' : 'rgba(140,170,255,A)', rnd(.03, .07));
+    }
+    g.globalCompositeOperation = 'source-over';
+    for (let i = 0; i < 1800; i++) {                                     // 먼지띠(팔 안쪽 가장자리)
+      const d = rnd(.12, .85), [x, y] = P(d, armAt(d, i % ARMS, -.12 + gauss() * .05)), r = R * rnd(.008, .022);
+      const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(8,4,10,.28)'); gr.addColorStop(1, 'rgba(8,4,10,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    g.globalCompositeOperation = 'lighter';
+    const N = Math.round(GS * GS / 60);                                  // 별 — 바깥 푸른 별, 안쪽 노란 별
+    for (let i = 0; i < N; i++) {
+      const disk = Math.random() < .35, d = disk ? Math.pow(Math.random(), .6) : Math.pow(Math.random(), .9) * .95 + .03;
+      const [x, y] = P(d, disk ? Math.random() * 6.283 : armAt(d, i % ARMS, gauss() * (.55 - d * .18)));
+      g.fillStyle = `hsla(${d < .28 ? rnd(30, 50) : rnd(205, 235)},${d < .28 ? 70 : 60}%,${rnd(70, 95)}%,${disk ? rnd(.15, .35) : rnd(.35, .85)})`;
+      const s = Math.random() < .985 ? rnd(.5, 1.3) * D : rnd(1.6, 2.6) * D; g.fillRect(x, y, s, s);
+    }
+    for (let i = 0; i < 90; i++) { const d = rnd(.3, .85), [x, y] = P(d, armAt(d, i % ARMS, gauss() * .1)); blob(x, y, R * rnd(.008, .02), 'rgba(255,110,170,A)', rnd(.25, .5)); }   // 분홍 성운
+    blob(R, R, R * .32, 'rgba(255,200,130,A)', .45); blob(R, R, R * .14, 'rgba(255,230,190,A)', .8); blob(R, R, R * .05, 'rgba(255,250,235,A)', 1);   // 금빛 중심
+    gal = c;
+  }
+  function resize() {
+    D = Math.min(2, devicePixelRatio || 1); W = cv.clientWidth; H = cv.clientHeight;
+    cv.width = W * D; cv.height = H * D; cx.setTransform(D, 0, 0, D, 0, 0);
+    dust = Array.from({ length: Math.round(W * H / 2400) }, () => ({ x: Math.random() * W, y: Math.random() * H, r: Math.random() < .93 ? rnd(.3, .9) : rnd(1, 1.7), p: Math.random() * 6.28, s: rnd(.4, 1.8), c: Math.random() < .2 ? '#ffd9b0' : Math.random() < .3 ? '#b8c8ff' : '#eef2ff' }));
+    makeGalaxy(); draw();
+  }
+  function draw() {
+    cx.globalCompositeOperation = 'source-over'; cx.fillStyle = '#000'; cx.fillRect(0, 0, W, H);
+    for (const s of dust) { cx.globalAlpha = .3 + .4 * Math.sin(t * s.s + s.p); cx.fillStyle = s.c; cx.fillRect(s.x, s.y, s.r, s.r); }
+    cx.globalAlpha = 1; cx.globalCompositeOperation = 'lighter';
+    const size = Math.max(W * 1.05, H * 1.2);
+    cx.save(); cx.translate(W / 2, H * .66); cx.rotate(-.32); cx.scale(1, .42); cx.rotate(t * .02);
+    cx.drawImage(gal, -size / 2, -size / 2, size, size); cx.restore();
+    cx.globalCompositeOperation = 'source-over';
+  }
+  function loop() { if (on) { t += 1 / 60; draw(); } if (!still) requestAnimationFrame(loop); }
+  new IntersectionObserver((es) => { on = es[0].isIntersecting; }).observe(cv);
+  let rt = 0; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(resize, 200); });
+  resize(); loop();
+})();
+</script>
+</body>
+</html>

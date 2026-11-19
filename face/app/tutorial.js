@@ -30,7 +30,7 @@ window.Tutorial = (() => {
   const DECK = '/app/tutorial/deck';
   const CHAPTERS = [['start', '시작', 1, 2], ['agent', '에이전트', 3, 8], ['map', '지도', 9, 12], ['doors', '소환', 13, 22], ['three', '3가지', 23, 30], ['lab', '실습', 31, 37], ['end', '마무리', 38, 99]];
   const chapOf = (no) => (CHAPTERS.find(([, , a, b]) => no >= a && no <= b) || CHAPTERS.at(-1))[0];
-  let SCENES = [{ id: 'build', kind: 'build', chap: 'three' }, { id: 'usage', kind: 'usage', chap: 'end' }, { id: 'finish', kind: 'finish', chap: 'end' }];
+  let SCENES = [{ id: 'build', kind: 'build', chap: 'three' }, { id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' }, { id: 'finish', kind: 'finish', chap: 'end' }];
   const buildIdx = () => SCENES.findIndex(s => s.kind === 'build');
   /** 덱 쪽 목록(manifest) → 장면 줄. 덱을 못 읽으면 IRIS 장면 3개만(튜토리얼 자체는 돈다). */
   function makeScenes(man) {
@@ -39,10 +39,10 @@ window.Tutorial = (() => {
     for (const s of man.slides) {
       out.push({ id: `d${s.no}`, kind: 'deck', no: s.no, chap: chapOf(s.no), title: s.title });
       if (s.no === 26) out.push({ id: 'build', kind: 'build', chap: 'three' });
-      if (s.no === 38) out.push({ id: 'usage', kind: 'usage', chap: 'end' });
+      if (s.no === 38) out.push({ id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' });
     }
     if (!out.some(s => s.kind === 'build')) out.push({ id: 'build', kind: 'build', chap: 'three' });
-    if (!out.some(s => s.kind === 'usage')) out.push({ id: 'usage', kind: 'usage', chap: 'end' });
+    if (!out.some(s => s.kind === 'usage')) out.push({ id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' });
     out.push({ id: 'finish', kind: 'finish', chap: 'end' });
     SCENES = out;
   }
@@ -86,6 +86,10 @@ window.Tutorial = (() => {
     usage: { pill: '하던 일 멈추기 = <b>Esc</b>',
       text: () => head('IRIS 화면', '한 화면에서<br><span>여러 에이전트를</span>', pts([['작업목록', '열린 대화들'], ['새 요청 +', '폴더 · 에이전트 · 요청'], ['확인 카드', '숫자나 단추로 허락'], ['대화 / 터미널', '보기 바꾸기'], ['설정 ⚙', '디자인·도구·업데이트'], ['입력창', '이어서 시키기 · 파일 끌어 놓기']], 'six')),
       art: () => `<figure class="tu-pic shot" data-act="zoom" title="크게 보기"><img src="${IMG('usage')}" alt="IRIS 화면 캡처: ① 작업목록 ② 새 요청(+) ③ 확인 카드 ④ 대화/터미널 전환 ⑤ 설정 ⑥ 입력창에 번호가 붙어 있다" decoding="async" draggable="false"></figure>` },
+    // P18 고도화판(2026-11-20 사용자 요청 "튜토리얼도 반영"): 사용법 다음에 새 기능 한 장면 — 자세한 것은 사용 설명서
+    newfeat: { pill: '자세한 사용법 = ⚙ 설정 → 업데이트·정보 → <b>사용 설명서</b>',
+      text: () => head('고도화판', '새로 생긴<br><span>여섯 가지</span>', pts([['Gemini', '세 번째 AI 비서'], ['캔버스', '만드는 파일을 옆에서 실시간으로'], ['수식', '대화 속 수식 · 한글/워드 진짜 수식'], ['내 MCP 추가', 'AI에게 새 도구 꽂기'], ['테마 21종', '밝은 테마 · 수학 무대'], ['고정 · 삭제', '작업목록 오른쪽 클릭']], 'six')),
+      art: () => `<figure class="tu-pic shot" data-act="zoom" title="크게 보기"><img src="${IMG('newfeat')}" alt="IRIS 캔버스 화면 캡처: AI 가 만든 학습지가 대화 오른쪽 캔버스에 떠 있다" decoding="async" draggable="false"></figure>` },
     finish: { pill: '예시 요청이 채워지고, <b>보내기는 직접</b> 누릅니다',
       text: () => head('준비 끝', '좋은 몸을 고르고,<br><span>자리와 연장</span>을 마련하기') + finishHtml(),
       art: () => ICONS() },

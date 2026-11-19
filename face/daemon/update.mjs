@@ -23,10 +23,14 @@ export const PART_NAMES = ['face', 'messenger', 'package'];   // 화면에 보�
 export const APPLY_ORDER = ['package', 'face', 'messenger'];  // 적용 차례(설계 1절)
 export const MESSENGER_MODULE = 'messenger';
 const GH = (repo) => `https://api.github.com/repos/${repo}/releases/latest`;
-/** 부품별 릴리스 원천(설계 1절). messenger 는 카탈로그(daemon/catalog.json)의 규칙을 그대로 쓴다. */
+/** 고도화판 자체 배포(P18, 2026-11-20 사용자 결정 — 판 2.1.0부터): 구조판 = 내 저장소 릴리스, IRIS 창 단독 판은 내지 않는다(구조판에 들어 있음).
+ *  원작 미러(latest.json)로는 넘어가지 않는다(noMirror) — 넘어가면 원작 판이 고도화판을 덮어쓴다.
+ *  자체 서명 열쇠가 생기기 전(signed=false)에는 원작 공식 열쇠로 내 판을 검증할 수 없으므로 구조판은 자동 적용하지 않고 홈페이지 「새로 설치」 안내만 한다. */
+export const SELF_DIST = { repo: 'kimhk35/iris-upgrade', home: 'https://iris.mathmckay.kr', signed: false };
+/** 부품별 릴리스 원천(설계 1절). messenger 는 카탈로그(daemon/catalog.json)의 규칙을 그대로 쓴다. null = 확인하지 않음. */
 export const PART_SOURCE = {
-  face: { api: GH('Feynman520/d06-p02-iris-face'), asset: '^iris-face-v.*\\.zip$' },
-  package: { api: GH('Feynman520/d09-p03-iris-installer'), asset: '^IRIS-Setup_v.*\\.zip$' },
+  face: null,
+  package: { api: GH(SELF_DIST.repo), asset: '^IRIS-Setup_v.*\\.zip$', noMirror: true },
 };
 /** 부품별 내려받기 상한 — 구조판은 동봉 런타임까지 들어 있어 수백 MB 다. */
 export const PART_LIMITS = {
@@ -49,7 +53,8 @@ export const DEV_REASON = '개발 폴더에서 실행 중 — git pull로 갱신
 // 이 영혼의 영수증이 1.x(schema<2 또는 영수증 없음)이면 **구조판 내려받기를 아예 하지 않고** 글과 홈페이지 링크만 보인다.
 // IRIS 창·메신저 부품은 그대로 업데이트된다(그 둘은 판이 바뀌어도 자리가 같다).
 export const REINSTALL_NOTE = '2.0은 설치 방식이 바뀌어 새로 설치합니다. 기존 자료는 그대로 두고 설치기를 실행하면 됩니다.';
-export const REINSTALL_URL = 'https://iris-workspace.com/install.html';
+export const REINSTALL_URL = SELF_DIST.home;
+export const SELF_REINSTALL_NOTE = '고도화판 새 판이 나왔어요. 홈페이지에서 설치 파일을 받아 다시 설치하면 됩니다(내 폴더와 자료는 그대로 남아요).';
 export const RECEIPT_SCHEMA_V2 = 2;
 /** 구조판 최신 판이 2.x 이상인데 영수증 schema 가 2 미만(또는 영수증 없음)이면 true. */
 export function needsReinstall({ latestPackageVersion, receipt } = {}) {
@@ -164,6 +169,8 @@ export class Updater {
     this.root = opts.root || soulRoot();
     this.daemonPort = opts.daemonPort || 3458;
     this.keys = opts.keys || OFFICIAL_PUBLIC_KEYS;
+    this.partSource = opts.partSource || PART_SOURCE;            // 검사(check-update)만 원작 모양 출처를 넣는다
+    this.signed = opts.signed ?? SELF_DIST.signed;
     this.catalogFile = opts.catalogFile || CATALOG_FILE;
     this.fetchImpl = opts.fetchImpl || ((...a) => globalThis.fetch(...a));
     this.spawnImpl = opts.spawnImpl || spawn;
@@ -189,7 +196,7 @@ export class Updater {
   /** 부품별 릴리스 주소·첨부 규칙. messenger 는 카탈로그에서(없으면 null = 확인하지 않음). */
   sources() {
     const cat = loadCatalog(this.catalogFile).find(c => c.name === MESSENGER_MODULE);
-    return { face: PART_SOURCE.face, messenger: cat ? { api: cat.release.api, asset: cat.release.asset } : null, package: PART_SOURCE.package };
+    return { face: this.partSource.face, messenger: cat ? { api: cat.release.api, asset: cat.release.asset } : null, package: this.partSource.package };
   }
 
   /** 새 판이 있는 부품(화면 표시용). 구조판·IRIS 창 둘 다 새 판이면 표시는 둘 다 한다. */
@@ -198,12 +205,14 @@ export class Updater {
     return PART_NAMES.filter(n => isNewer(latest[n]?.version, ins[n]));
   }
   /** 1.x 영혼인데 구조판 최신 판이 2.x — 자동 적용 대신 "새로 설치" 안내만(Task 21). */
-  get reinstall() { return needsReinstall({ latestPackageVersion: this.state.latest?.package?.version, receipt: this.receipt() }); }
+  get reinstall() { return this.selfReinstall || needsReinstall({ latestPackageVersion: this.state.latest?.package?.version, receipt: this.receipt() }); }
+  /** 고도화판(P18): 서명 열쇠가 없는 동안 구조판 새 판은 홈페이지 새로 설치로만 안내한다. */
+  get selfReinstall() { return !this.signed && isNewer(this.state.latest?.package?.version, this.installed().package); }
   /** 그 안내에 화면이 쓸 값. 해당 없으면 null. */
   reinstallInfo() {
     if (!this.reinstall) return null;
     const p = this.state.latest?.package || null;
-    return { note: REINSTALL_NOTE, url: REINSTALL_URL, version: p?.version || null, asset: p?.asset || null, download: p?.url || null };
+    return { note: this.selfReinstall ? SELF_REINSTALL_NOTE : REINSTALL_NOTE, url: REINSTALL_URL, version: p?.version || null, asset: p?.asset || null, download: p?.url || null };
   }
   /** 실제로 받아 적용할 부품(설계 1절: 구조판이 있으면 그 안에 최신 IRIS 창이 들어 있으므로 face 는 건너뛴다). */
   applyParts() {
@@ -243,7 +252,8 @@ export class Updater {
     let assets = Array.isArray(rel?.assets) ? rel.assets : [];
     // GitHub API 가 403(익명 rate limit·망 차단 — 2026-09-19 데스크탑 실측 "update check … HTTP 403")이거나 첨부가 없으면
     // 미러의 latest.json(릴리스 도구·mirror-upload 가 부품별로 적음)에서 같은 모양을 만든다. 내려받기·sha256·서명도 미러 주소.
-    if (!assets.length && name) {
+    if (!assets.length && name && src.noMirror) { if (!rel) throw ghErr || new Error('github api unreachable'); }
+    else if (!assets.length && name) {
       const latest = await this.json(mirrorUrl('latest.json')).catch(() => null);
       const m = latest && latest[name];
       if (m && m.version && m.asset && m.url) {

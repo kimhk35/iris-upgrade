@@ -629,7 +629,10 @@
   window.addEventListener('iris:mod-installing', renderModules); // 설정 화면에서 설치를 시작·끝냈을 때도 헤더 고리를 맞춘다
   $('#limits').onclick = () => toggleDash(); $('#dash-close').onclick = () => closeDrawer();
   $('#dash-reload').onclick = () => { if (drawerKey === 'dash') loadDash(true); else if (drawerKey) { const u = fr.src; fr.src = 'about:blank'; requestAnimationFrame(() => { fr.src = u; }); } };
-  $('#dash-ext').onclick = () => { if (drawerKey === 'dash') window.open(fr.src || DASH_URL, '_blank'); };
+  $('#dash-ext').onclick = () => { if (drawerKey === 'dash') window.open(fr.src || DASH_URL, '_blank'); else if (drawerKey === 'manual') window.open(MANUAL_URL, '_blank'); };
+  // 사용 설명서(P18, 2026-11-20): 설정 → 업데이트·정보 「사용 설명서」 → 대시보드와 같은 서랍(원본 = P18 manual\, build.mjs 가 app/manual 로 복사)
+  const MANUAL_URL = '/app/manual/manual.html';
+  document.addEventListener('iris:manual', () => openDrawer('manual', { title: 'IRIS 사용 설명서', url: MANUAL_URL }));
 
   // ---------- 보내기: 세션이 있으면 그 세션으로, 없으면 고른 폴더·조합으로 새 세션 ----------
   const ta = $('#composer-text');

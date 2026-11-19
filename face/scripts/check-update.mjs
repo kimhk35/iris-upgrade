@@ -10,8 +10,11 @@ import { buildManifest, signManifest, generateKeyPair, sha256 } from '../daemon/
 import {
   Updater, versionFromTag, cmpSemver, isNewer, parseSha256File, stamp, detectMode, readInstalled,
   verifyFaceZip, verifySignedSha256, extractZipFile, PART_NAMES, APPLY_ORDER, PART_SOURCE, DEV_REASON,
-  needsReinstall, REINSTALL_NOTE, REINSTALL_URL,
+  needsReinstall, REINSTALL_NOTE, REINSTALL_URL, SELF_DIST, SELF_REINSTALL_NOTE,
 } from '../daemon/update.mjs';
+// P18 고도화판(2026-11-20): 기본 출처는 내 저장소(IRIS 창 단독 판 없음·미러 없음·서명 전). 아래 기존 시험은 원작 모양 출처로 받기·검증·적용 엔진을 그대로 시험하고, 맨 끝 절이 기본값을 시험한다.
+const LEGACY = { face: { api: 'https://api.github.com/repos/Feynman520/d06-p02-iris-face/releases/latest', asset: '^iris-face-v.*\\.zip$' },
+  package: { api: 'https://api.github.com/repos/Feynman520/d09-p03-iris-installer/releases/latest', asset: '^IRIS-Setup_v.*\\.zip$' } };
 
 let pass = 0, fail = 0;
 const ok = (cond, name) => { if (cond) { pass++; console.log(`PASS ${name}`); } else { fail++; console.log(`FAIL ${name}`); } };
@@ -30,7 +33,8 @@ const OTHER = generateKeyPair();
   ok(parseSha256File(`${hex}  iris-face-v2.58.0.zip\n`) === hex && parseSha256File(`${hex.toUpperCase()}\n`) === hex && parseSha256File('nope') === null, '판: .sha256 첨부에서 64자리 hex 만 뽑음(대문자 → 소문자)');
   ok(/^\d{8}-\d{6}$/.test(stamp(Date.now())), '판: 내려받기 폴더 시각 표기 YYYYMMDD-HHMMSS');
   ok(PART_NAMES.join(',') === 'face,messenger,package' && APPLY_ORDER.join(',') === 'package,face,messenger', '판: 표시 차례와 적용 차례(구조판 → 창 → 메신저)');
-  ok(/d06-p02-iris-face\/releases\/latest$/.test(PART_SOURCE.face.api) && /d09-p03-iris-installer\/releases\/latest$/.test(PART_SOURCE.package.api), '판: 릴리스 주소는 설계 1절의 저장소 둘(메신저는 카탈로그)');
+  ok(PART_SOURCE.face === null && PART_SOURCE.package.api === `https://api.github.com/repos/${SELF_DIST.repo}/releases/latest` && PART_SOURCE.package.noMirror === true && SELF_DIST.repo === 'kimhk35/iris-upgrade', '판(P18): 구조판 = 내 저장소 · IRIS 창 단독 확인 없음 · 원작 미러로 안 넘어감');
+  ok(REINSTALL_URL === 'https://iris.mathmckay.kr' && SELF_DIST.signed === false, '판(P18): 새로 설치 안내 = 고도화판 홈페이지 · 서명 열쇠 전');
 }
 
 // ---- 2) 가짜 영혼 폴더(픽스처) ----
@@ -159,7 +163,7 @@ const broadcasts = [];
 const msgInstalls = [];
 const spawns = [];
 const mkUpdater = (extra = {}) => new Updater({
-  root, faceRoot: faceHome, stateDir, modulesDir, daemonPort: 3459, keys: KEYS,
+  root, faceRoot: faceHome, stateDir, modulesDir, daemonPort: 3459, keys: KEYS, partSource: LEGACY, signed: true,
   fetchImpl: fakeFetch, now: () => nowMs, log: () => {}, broadcast: (o) => broadcasts.push(o),
   installMessenger: async (buf) => { msgInstalls.push(buf.length); return { status: 201, body: { name: 'messenger', version: '0.4.0' } }; },
   spawnImpl: (cmd, args, o) => { spawns.push({ cmd, args, o }); return { pid: 4242, unref() {} }; },
@@ -190,10 +194,10 @@ let up;
 
 // ---- 7) 확인 실패는 조용히 기록 ----
 {
-  const bad = new Updater({ root, faceRoot: faceHome, stateDir: fs.mkdtempSync(path.join(tmp, 'st2-')), modulesDir, keys: KEYS, now: () => nowMs, fetchImpl: async () => R(503, 'nope') });
+  const bad = new Updater({ root, faceRoot: faceHome, stateDir: fs.mkdtempSync(path.join(tmp, 'st2-')), modulesDir, keys: KEYS, partSource: LEGACY, signed: true, now: () => nowMs, fetchImpl: async () => R(503, 'nope') });
   const info = await bad.check();
   ok(info.checkError && /503/.test(info.checkError) && info.available.length === 0, '확인 실패: 사유만 기록하고 목록은 비운다(데몬 안 죽음)');
-  const off = new Updater({ root, faceRoot: faceHome, stateDir: fs.mkdtempSync(path.join(tmp, 'st3-')), modulesDir, keys: KEYS, fetchImpl: async () => { throw new Error('no network'); } });
+  const off = new Updater({ root, faceRoot: faceHome, stateDir: fs.mkdtempSync(path.join(tmp, 'st3-')), modulesDir, keys: KEYS, partSource: LEGACY, signed: true, fetchImpl: async () => { throw new Error('no network'); } });
   ok((await off.check()).checkError.includes('no network'), '확인 실패: fetch 자체가 터져도 info 를 돌려준다');
 }
 
@@ -211,7 +215,7 @@ let up;
     if (/\/latest\.json$/.test(url)) return Promise.resolve(R(200, STABLE_JSON));
     return fakeFetch(url, opts);
   };
-  const pre = new Updater({ root, faceRoot: faceHome, stateDir: fs.mkdtempSync(path.join(tmp, 'st-pre-')), modulesDir, keys: KEYS, now: () => nowMs, log: () => {}, broadcast: () => {}, fetchImpl: preFetch });
+  const pre = new Updater({ root, faceRoot: faceHome, stateDir: fs.mkdtempSync(path.join(tmp, 'st-pre-')), modulesDir, keys: KEYS, partSource: LEGACY, signed: true, now: () => nowMs, log: () => {}, broadcast: () => {}, fetchImpl: preFetch });
   const info = await pre.check();
   ok(info.latest.face?.version === '2.58.0' && info.latest.face?.viaMirror === true, '두 갈래: 사전 공개 창 2.59.0 은 무시하고 안정판 전용 latest.json(2.58.0)을 쓴다');
   ok(!info.latest.package || info.latest.package.version !== '9.9.9', '두 갈래: 초안(draft) 구조판은 받지 않는다');
@@ -220,9 +224,9 @@ let up;
 
 // ---- 8) 설정 토글 · 타이머 끔 플래그 ----
 {
-  const t = new Updater({ root, faceRoot: faceHome, stateDir, modulesDir, keys: KEYS, fetchImpl: fakeFetch, now: () => nowMs });
+  const t = new Updater({ root, faceRoot: faceHome, stateDir, modulesDir, keys: KEYS, partSource: LEGACY, signed: true, fetchImpl: fakeFetch, now: () => nowMs });
   ok(t.setEnabled(false).enabled === false && JSON.parse(fs.readFileSync(path.join(stateDir, 'update.json'), 'utf8')).enabled === false, '설정: 스위치를 끄면 state 에 남는다');
-  const reread = new Updater({ root, faceRoot: faceHome, stateDir, modulesDir, keys: KEYS, fetchImpl: fakeFetch, now: () => nowMs });
+  const reread = new Updater({ root, faceRoot: faceHome, stateDir, modulesDir, keys: KEYS, partSource: LEGACY, signed: true, fetchImpl: fakeFetch, now: () => nowMs });
   ok(reread.enabled === false, '설정: 데몬을 다시 띄워도 꺼진 채로');
   reread.stop();
   ok(reread.start() === true && reread.timers.length === 2, '타이머: 기본은 30초 뒤 1회 + 24시간마다');
@@ -235,7 +239,7 @@ let up;
 
 // ---- 9) dev 모드는 적용하지 않는다 ----
 {
-  const dev = new Updater({ root, faceRoot: path.join(tmp, 'dev-face'), stateDir: fs.mkdtempSync(path.join(tmp, 'st4-')), modulesDir, keys: KEYS, fetchImpl: fakeFetch, now: () => nowMs });
+  const dev = new Updater({ root, faceRoot: path.join(tmp, 'dev-face'), stateDir: fs.mkdtempSync(path.join(tmp, 'st4-')), modulesDir, keys: KEYS, partSource: LEGACY, signed: true, fetchImpl: fakeFetch, now: () => nowMs });
   ok(dev.mode === 'dev', 'dev: 개발 폴더에서 실행 → dev 모드');
   const r = await dev.apply();
   ok(r.ok === false && r.reason === DEV_REASON, 'dev: apply 거부 · 사유는 "git pull로 갱신"');
@@ -443,7 +447,7 @@ let planFile = null;
 {
   const stDir = fs.mkdtempSync(path.join(tmp, 'st-re-'));
   const re = new Updater({
-    root, faceRoot: faceHome, stateDir: stDir, modulesDir, keys: KEYS, now: () => nowMs, log: () => {}, broadcast: () => {},
+    root, faceRoot: faceHome, stateDir: stDir, modulesDir, keys: KEYS, partSource: LEGACY, signed: true, now: () => nowMs, log: () => {}, broadcast: () => {},
     fetchImpl: fakeFetch,
   });
   // 영수증은 schema 1(1.x 영혼), 구조판 최신은 2.0.0 으로 손으로 세팅
@@ -462,7 +466,7 @@ let planFile = null;
   ok(info.headline?.part === 'face', 'reinstall: 단추의 대표 판은 창(구조판을 올리지 않는다)');
   ok(info.reinstall?.note === REINSTALL_NOTE && info.reinstall.url === REINSTALL_URL && info.reinstall.version === '2.0.0', 'reinstall: 화면에 줄 안내 문구·홈페이지 링크·새 판');
   // 구조판만 새 판인 경우 → apply 는 받지 않고 안내를 돌려준다
-  const only = new Updater({ root, faceRoot: faceHome, stateDir: fs.mkdtempSync(path.join(tmp, 'st-re2-')), modulesDir, keys: KEYS, now: () => nowMs, log: () => {}, broadcast: () => {}, fetchImpl: fakeFetch });
+  const only = new Updater({ root, faceRoot: faceHome, stateDir: fs.mkdtempSync(path.join(tmp, 'st-re2-')), modulesDir, keys: KEYS, partSource: LEGACY, signed: true, now: () => nowMs, log: () => {}, broadcast: () => {}, fetchImpl: fakeFetch });
   only.state.latest = { face: null, messenger: null, package: { version: '2.0.0', url: 'x', asset: 'IRIS-Setup_v2.0.0_2026-09-20.zip' } };
   only.state.lastCheck = new Date(nowMs).toISOString();
   const r = await only.apply();
@@ -476,6 +480,25 @@ let planFile = null;
   const js = fs.readFileSync('app/settings.js', 'utf8');
   ok(/upd\.reinstall/.test(js) && /upd-reinstall/.test(js), '화면: 설정 → 업데이트가 reinstall 안내를 그린다');
   ok(/r\.reinstall/.test(js), '화면: apply 가 돌려준 안내는 "실패" 문구로 감싸지 않는다');
+}
+
+// ---- P18) 고도화판 기본값: 내 저장소 · 원작 미러 안 씀 · 서명 전엔 「새로 설치」 안내만 ----
+{
+  const asked = [];
+  const selfFetch = async (url) => {
+    asked.push(String(url));
+    if (String(url).includes(SELF_DIST.repo)) return new Response(JSON.stringify({ tag_name: 'iris-installer--v9.9.0', prerelease: false, draft: false, assets: [{ name: 'IRIS-Setup_v9.9.0_2026-12-01.zip', browser_download_url: 'https://github.com/kimhk35/iris-upgrade/releases/download/x/IRIS-Setup_v9.9.0_2026-12-01.zip', size: 10 }], body: '' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    return new Response('{}', { status: 404 });
+  };
+  const me = new Updater({ root, faceRoot: faceHome, stateDir: fs.mkdtempSync(path.join(tmp, 'st-self-')), modulesDir, keys: KEYS, now: () => nowMs, log: () => {}, broadcast: () => {}, fetchImpl: selfFetch });
+  const info = await me.check();
+  ok(info.latest.face === null && info.latest.package?.version === '9.9.0', `P18: IRIS 창 단독 확인 없음 · 구조판 새 판은 내 저장소에서 (${info.latest.package?.version})`);
+  // 메신저는 원작 서명 릴리스를 그대로 쓴다(카탈로그) — 구조판·IRIS 창의 원작 저장소만 묻지 않으면 된다
+  ok(!asked.some(u => /d09-p03-iris-installer|d06-p02-iris-face/.test(u)), `P18: 구조판·IRIS 창의 원작 저장소를 묻지 않음 (${asked.length}번)`);
+  ok(info.reinstall?.note === SELF_REINSTALL_NOTE && info.reinstall.url === 'https://iris.mathmckay.kr' && !info.applyParts.includes('package'), 'P18: 서명 전 새 판 = 자동 적용 없이 홈페이지 새로 설치 안내');
+  const down = new Updater({ root, faceRoot: faceHome, stateDir: fs.mkdtempSync(path.join(tmp, 'st-self2-')), modulesDir, keys: KEYS, now: () => nowMs, log: () => {}, broadcast: () => {}, fetchImpl: async (url) => { asked.push(String(url)); throw new Error('net down'); } });
+  const before = asked.length; const i2 = await down.check();
+  ok(/패키지/.test(i2.checkError || '') && !i2.latest.package && !i2.reinstall, `P18: GitHub 이 안 될 때 구조판은 원작 미러 latest.json 으로 넘어가지 않고 확인 실패로 남음 (${i2.checkError})`);
 }
 
 // ---- 끝 ----

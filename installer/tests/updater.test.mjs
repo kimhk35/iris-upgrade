@@ -367,7 +367,7 @@ test('updater: schema 1 receipt vs schema 2 package -- refuses --auto, reinstall
   assert.equal(item.reason, 'reinstall-required');
   assert.equal(item.code, 'reinstall-required');
   assert.equal(item.message, '2.0은 설치 방식이 바뀌어 새로 설치합니다. 기존 자료는 그대로 두고 설치기를 실행하면 됩니다.');
-  assert.equal(item.downloadUrl, 'https://iris-workspace.com/install.html');
+  assert.equal(item.downloadUrl, 'https://iris.mathmckay.kr');
   assert.equal(result.handedOffToInstaller, false);
 });
 

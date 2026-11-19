@@ -598,7 +598,7 @@ export function prunePrevious(slot, keepAbs, { log = () => {} } = {}) {
 // it before that spawn (T22, 2026-09-15).
 export const PACKAGE_SCHEMA = 2;
 const REINSTALL_MESSAGE = '2.0은 설치 방식이 바뀌어 새로 설치합니다. 기존 자료는 그대로 두고 설치기를 실행하면 됩니다.';
-const REINSTALL_URL = 'https://iris-workspace.com/install.html';
+const REINSTALL_URL = 'https://iris.mathmckay.kr'; // P18 고도화판 홈페이지(2026-11-20)
 
 export function applyPackageItem({
   root, dir, spawnFn = spawn, log = () => {},

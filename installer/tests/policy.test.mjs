@@ -169,7 +169,7 @@ test('policy: install-notice.txt names both SAC routes, the log path and the hom
     '차단 해제',
     'cmd /c IRIS-설치.cmd',
     '%LOCALAPPDATA%\\IRIS-Installer\\bootstrap.log',
-    'https://iris-workspace.com/install.html#sac',
+    'https://iris.mathmckay.kr/#sac',
   ]) {
     assert.ok(text.includes(needle), `install-notice.txt must mention: ${needle}`);
   }

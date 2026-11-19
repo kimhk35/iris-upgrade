@@ -44,9 +44,9 @@ IRIS-설치.cmd 를 두 번 눌렀는데 아무 일도 일어나지 않거나
 
          %LOCALAPPDATA%\IRIS-Installer\bootstrap.log
 
-  - 그림과 함께 설명한 안내는 홈페이지에 있습니다.
+  - 같은 안내는 IRIS 고도화판 홈페이지에도 있습니다.
 
-         https://iris-workspace.com/install.html#sac
+         https://iris.mathmckay.kr/#sac
 
   - 도움을 요청할 때 위 로그 파일을 함께 보내 주시면
     어디서 막혔는지 바로 알 수 있습니다.
