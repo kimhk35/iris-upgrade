@@ -183,9 +183,12 @@
   const loadOrder = () => { try { const a = JSON.parse(localStorage.getItem(ORDER_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
   const saveOrder = () => { try { localStorage.setItem(ORDER_KEY, JSON.stringify(sessions.map(s => s.id))); } catch {} };
   function sortSessions() {
-    const order = loadOrder(); if (!order.length) return;
-    const rank = new Map(order.map((id, i) => [id, i]));
-    sessions = sessions.map((s, i) => ({ s, k: rank.has(s.id) ? rank.get(s.id) : order.length + i })).sort((a, b) => a.k - b.k).map(x => x.s);
+    const order = loadOrder();
+    if (order.length) {
+      const rank = new Map(order.map((id, i) => [id, i]));
+      sessions = sessions.map((s, i) => ({ s, k: rank.has(s.id) ? rank.get(s.id) : order.length + i })).sort((a, b) => a.k - b.k).map(x => x.s);
+    }
+    sessions = [...sessions.filter(s => s.pinned), ...sessions.filter(s => !s.pinned)]; // 고정(P18 2026-11-19)은 맨 위 묶음 — 묶음 안 순서는 끌어 놓은 순서 그대로
   }
   let dragId = null;
   function moveSession(fromId, toId, after) {
@@ -200,13 +203,18 @@
     sortSessions();
     const list = $('#session-list');
     if (!renaming) { list.innerHTML = ''; // 이름을 고치는 동안은 목록을 다시 그리지 않는다(상태 방송마다 입력칸이 날아가지 않게, v2.85)
+    const pinnedN = sessions.filter(s => s.pinned).length;
     sessions.forEach((s, i) => {
-      const li = document.createElement('li'); li.className = 'srow' + (s.id === current ? ' active' : ''); li.dataset.id = s.id; li.draggable = true;
+      // 고정 묶음 머리(P18 2026-11-19): 고정한 대화가 있을 때만 「고정됨」·「대화」 두 머리를 넣는다
+      if (pinnedN && (i === 0 || i === pinnedN)) { const h = document.createElement('li'); h.className = 'sgroup'; h.textContent = i === 0 ? '고정됨' : '대화'; list.appendChild(h); }
+      const li = document.createElement('li'); li.className = 'srow' + (s.id === current ? ' active' : '') + (s.pinned ? ' pinned' : ''); li.dataset.id = s.id; li.draggable = true;
       li.innerHTML = `<span class="dot ${viewStatus(s)}" title="${statusText(s)}"></span>
-        <span class="sname" title="${esc(`${s.title || shortPath(s.cwd)}\n(두 번 클릭 · F2 = 이름 바꾸기)`)}"><span class="stitle">${esc(s.title || shortPath(s.cwd))}</span>${liveN(s.id) ? `<span class="subn${SubPanel.running(s.id) || bgN(s.id) ? '' : ' quiet'}" title="${esc([`살아 있는 보조 작업 ${SubPanel.alive(s.id)}개(실행 중 ${SubPanel.running(s.id)}) · 배경 작업 ${bgN(s.id)}개`, ...bgLines(s.id)].join('\n'))}">⁺${liveN(s.id)}</span>` : ''}</span><span class="sside"><span class="sidx">${i + 1}</span><button class="srename" title="이름 바꾸기 (F2)" aria-label="이름 바꾸기">${Icons.svg('pencil', 14)}</button></span>
+        <span class="sname" title="${esc(`${s.title || shortPath(s.cwd)}\n(두 번 클릭 · F2 = 이름 바꾸기)`)}"><span class="stitle">${esc(s.title || shortPath(s.cwd))}</span>${liveN(s.id) ? `<span class="subn${SubPanel.running(s.id) || bgN(s.id) ? '' : ' quiet'}" title="${esc([`살아 있는 보조 작업 ${SubPanel.alive(s.id)}개(실행 중 ${SubPanel.running(s.id)}) · 배경 작업 ${bgN(s.id)}개`, ...bgLines(s.id)].join('\n'))}">⁺${liveN(s.id)}</span>` : ''}</span><span class="sside"><span class="sidx"${s.pinned ? ' title="고정됨"' : ''}>${s.pinned ? Icons.svg('pin', 13) : i + 1 - (pinnedN && !s.pinned ? pinnedN : 0)}</span><button class="srename" title="이름 바꾸기 (F2)" aria-label="이름 바꾸기">${Icons.svg('pencil', 14)}</button><button class="smore" title="고정 · 이름 바꾸기 · 삭제 (오른쪽 클릭도 됨)" aria-label="메뉴">${Icons.svg('more', 14)}</button></span>
         <span class="smeta"><span class="chip ${s.agent}">${AGENT_KO[s.agent]}</span> ${s.title ? `<span class="sfold" title="${esc(s.cwd)}">${esc(shortPath(s.cwd))}</span> · ` : ''}${esc(s.modelLabel || s.model)}${effTxt(esc(s.effort || ''))}${permText(s) ? ' · ' + esc(permText(s)) : ''} · ${statusText(s)}</span>`;
       li.onclick = () => { if (s.id === current && setupMode === 'new') return; select(s.id); }; // 이미 보는 줄은 다시 그리지 않는다 — 두 번 클릭의 둘째 클릭이 사라진 줄에 떨어지지 않게(v2.85)
       li.querySelector('.srename').onclick = (e) => { e.stopPropagation(); startRename(s.id, li.querySelector('.stitle')); }; // 연필(v2.86) = 선택하지 않고 그 자리에서 고친다
+      li.querySelector('.smore').onclick = (e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); RowMenu.open(s.id, r.right, r.bottom + 4); }; // ⋯ 줄 메뉴(P18 2026-11-19)
+      li.oncontextmenu = (e) => { e.preventDefault(); RowMenu.open(s.id, e.clientX, e.clientY); };
       // 끌어서 순서 바꾸기(HTML5 DnD): 놓는 위치는 대상 행의 위/아래 절반으로 판단
       li.ondragstart = (e) => { dragId = s.id; li.classList.add('dragging'); try { e.dataTransfer.setData('text/plain', s.id); e.dataTransfer.effectAllowed = 'move'; } catch {} };
       li.ondragend = () => { dragId = null; list.querySelectorAll('.srow').forEach(r => r.classList.remove('dragging', 'drop-before', 'drop-after')); };
@@ -216,6 +224,7 @@
       list.appendChild(li);
     }); }
     $('#rail-count').textContent = sessions.length ? `${sessions.length}` : '';
+    const endedN = endedSessions().length; $('#btn-clean').hidden = !endedN; $('#btn-clean').title = `끝난 대화 ${endedN}개를 목록에서 지우기(고정한 대화는 남김)`;
     if (current && current !== 'preview' && !cur()) current = null;
     $('#view').hidden = !current;
     IrisStars.setDim(!!current);
@@ -293,6 +302,66 @@
     const t = $(`#session-list .srow[data-id="${current}"] .stitle`); // 접힌 사이드바는 줄(점)만 남고 이름이 숨으므로 이름 칸이 보이는지로 고른다
     startRename(current, t && t.offsetParent ? t : $('#vh-title')); return true;
   }
+
+  // ---------- 고정 · 삭제(P18 2026-11-19 사용자 요청) ----------
+  // 삭제 = 목록에서만(사용자 결정): Claude·Codex·Gemini 가 각자 가진 원래 기록 파일은 남는다. 도는 대화는 확인 뒤 끄고(DELETE = PID 트리만) 지운다.
+  // 메뉴는 ⋯ 단추·오른쪽 클릭으로 뜨고, 바깥을 누르거나 Esc(onEscape 맨 앞)면 닫힌다. 모든 확인은 페이지 Dialog(네이티브 confirm 금지).
+  function isEnded(s) { return s.status === 'dead' || s.status === 'exited'; }
+  function endedSessions() { return sessions.filter(s => !s.pinned && isEnded(s)); }
+  async function togglePin(id) {
+    const s = sessions.find(x => x.id === id); if (!s) return;
+    try { const j = await api('POST', `/api/sessions/${id}/pin`, { pinned: !s.pinned }); s.pinned = !!j.pinned; render(); }
+    catch (e) { Dialog.alert('고정을 바꾸지 못했습니다: ' + e.message); }
+  }
+  async function deleteSession(id) {
+    const s = sessions.find(x => x.id === id); if (!s) return;
+    const name = s.title || shortPath(s.cwd), alive = !isEnded(s);
+    const msg = `「${name}」 대화를 목록에서 지울까요?${alive ? '\n지금 작업 중인 대화라 먼저 끕니다(이 대화의 프로그램만).' : ''}\n각 AI 의 원래 기록 파일은 남아 있어요.`;
+    if (!(await Dialog.confirm(msg, { okLabel: '지우기', danger: true }))) return;
+    try {
+      if (alive) await api('DELETE', `/api/sessions/${id}`); else await api('POST', `/api/sessions/${id}/forget`);
+      sessions = sessions.filter(x => x.id !== id); if (current === id) goHome(); else render();
+    } catch (e) { Dialog.alert('지우지 못했습니다: ' + e.message); }
+  }
+  async function cleanEnded() {
+    const list = endedSessions(); if (!list.length) return;
+    if (!(await Dialog.confirm(`끝난 대화 ${list.length}개를 목록에서 지울까요?\n고정한 대화와 작업 중인 대화는 남겨요. 각 AI 의 원래 기록 파일도 남아 있어요.`, { okLabel: `${list.length}개 지우기`, danger: true }))) return;
+    let fail = 0;
+    for (const s of list) { try { await api('POST', `/api/sessions/${s.id}/forget`); sessions = sessions.filter(x => x.id !== s.id); } catch { fail++; } }
+    if (list.some(s => s.id === current) && !cur()) goHome(); else render();
+    if (fail) Dialog.alert(`${fail}개는 지우지 못했습니다(그사이 다시 켜졌을 수 있어요).`);
+  }
+  $('#btn-clean').onclick = cleanEnded;
+  const RowMenu = (() => {
+    let el = null, forId = null;
+    const close = () => { if (!el) return false; el.remove(); el = null; forId = null; return true; };
+    function open(id, x, y) {
+      close(); const s = sessions.find(v => v.id === id); if (!s) return; forId = id;
+      el = document.createElement('div'); el.className = 'row-menu'; el.setAttribute('role', 'menu');
+      const item = (act, icon, text, danger) => `<button type="button" role="menuitem" data-act="${act}"${danger ? ' class="danger"' : ''}>${Icons.svg(icon, 15)}<span>${text}</span></button>`;
+      el.innerHTML = item('pin', 'pin', s.pinned ? '고정 풀기' : '맨 위에 고정') + item('rename', 'pencil', '이름 바꾸기') + '<hr>' + item('delete', 'trash', '삭제', true);
+      el.addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-act]'); if (!b) return; e.stopPropagation(); const act = b.dataset.act, sid = forId; close();
+        if (act === 'pin') togglePin(sid);
+        else if (act === 'delete') deleteSession(sid);
+        else if (act === 'rename') { const t = $(`#session-list .srow[data-id="${sid}"] .stitle`); if (t) startRename(sid, t); }
+      });
+      document.body.appendChild(el);
+      const r = el.getBoundingClientRect(); // 화면 밖으로 나가지 않게
+      el.style.left = Math.max(8, Math.min(x - (x > innerWidth / 2 ? r.width : 0), innerWidth - r.width - 8)) + 'px';
+      el.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
+      el.querySelector('button').focus();
+    }
+    document.addEventListener('mousedown', (e) => { if (el && !el.contains(e.target)) close(); }, true);
+    addEventListener('blur', close); addEventListener('resize', close);
+    return { open, close, isOpen: () => !!el };
+  })();
+  // Delete 키 = 보고 있는 대화 지우기(확인 창). 입력칸·터미널에서는 글자 지우기이므로 건드리지 않는다.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Delete' || e.ctrlKey || e.altKey || e.shiftKey || !current || current === 'preview' || renaming) return;
+    const a = document.activeElement; if (a && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.closest?.('.xterm'))) return;
+    e.preventDefault(); deleteSession(current);
+  });
 
   // ---------- 세션 선택 / 새 요청 모드 ----------
   function select(id) { current = id; setupMode = 'new'; Canvas.onSession(id, sessions.find(x => x.id === id)?.cwd); ensureTerm(); render(); attach(id); SubPanel.onSession(id); if (mode === 'term') term.focus(); else $('#composer-text').focus(); }
@@ -748,6 +817,7 @@
   function onEscape() {
     const now = Date.now(); if (now - lastEscAt < 300) return; lastEscAt = now;
     if (renaming) { renaming.cancel(); return; }      // 이름 고치는 중 Esc = 고치기 취소만(작업 중단 아님, v2.85)
+    if (RowMenu.close()) return;                       // 줄 메뉴(⋯)가 떠 있으면 Esc = 메뉴만 닫기(P18 2026-11-19)
     if (Tutorial.isOpen()) { Tutorial.back(); return; } // 튜토리얼 위에서 Esc = 그 안의 한 단계 뒤로만(크게 보기 닫기·역할 다시 고르기) — 작업 중단으로 새지 않는다(v2.90 → v2.93)
     if (Voice.cancel()) return;                       // 🎤 녹음 중 Esc = 녹음 버림
     if (Settings.isOpen() && window.OntologyView?.back?.()) return; // 온톨로지에서 역할을 골랐거나 검색 중이면 Esc = 한 단계 뒤로만(서랍은 그대로, v2.91)

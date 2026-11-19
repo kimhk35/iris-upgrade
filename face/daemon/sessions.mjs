@@ -459,6 +459,12 @@ export class SessionManager {
     this.live.delete(id); rec.pid = null; this.setStatus(id, 'exited'); this.save();
     return rec;
   }
+  /** 작업목록 고정(P18 2026-11-19 사용자 요청): 고정한 대화는 목록 맨 위 「고정됨」 묶음. sessions.json 에 남아 재시작·전부 종료 뒤에도 유지. */
+  setPinned(id, pinned) {
+    const rec = this.sessions.get(id); if (!rec) return null;
+    if (pinned) rec.pinned = true; else delete rec.pinned;
+    this.save(); this.hooks.onList?.(); return rec;
+  }
   forget(id) {
     const rec = this.sessions.get(id); if (!rec) return null;
     if (this.live.has(id) || pidAlive(rec.pid)) throw new Error('session still alive; use close');

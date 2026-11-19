@@ -646,6 +646,14 @@ const server = http.createServer(async (req, res) => {
       log(`title ${rec.id} (${rec.titleSource || 'auto'}) ${rec.title}`);
       return json(res, 200, { ok: true, title: rec.title, titleSource: rec.titleSource });
     }
+    // 작업목록 고정(P18 2026-11-19): { pinned: true|false }. 같은 출처 검사는 요청 맨 앞(GET 아닌 것 전부), 개인 공간 검사는 위 /api/sessions/:id 공통 줄이 한다.
+    const mpin = p.match(/^\/api\/sessions\/([a-z0-9]+)\/pin$/);
+    if (mpin && req.method === 'POST') {
+      const b = await readBody(req); const rec = sm.setPinned(mpin[1], !!b.pinned);
+      if (!rec) return json(res, 404, { error: 'no session' });
+      log(`pin ${rec.id} ${rec.pinned ? 'on' : 'off'}`);
+      return json(res, 200, { ok: true, pinned: !!rec.pinned });
+    }
     const m = p.match(/^\/api\/sessions\/([a-z0-9]+)(?:\/(input|resize|buffer|forget|transcript|send|switch|resume))?$/);
     if (m) {
       const [, id, action] = m;
