@@ -17,7 +17,9 @@ export async function readLimits({ maxAgeMs = 30000 } = {}) {
       const d = await r.json();
       const cur = d.currentAccounts || {};
       const acc = (name) => (d.accounts || []).find(a => a.name === name) || null;
-      const a = acc(cur.anthropic), c = acc(cur.codex);
+      // 「다음에 쓸 계정」(왕관)이 비어 있으면(예: 코덱스 요청이 아직 없을 때) 그 공급자의 켜진 첫 계정으로 — 배터리가 「—」로 비던 것(P18 2026-11-19)
+      const first = (prov) => (d.accounts || []).find(x => x.provider === prov && !x.disabled) || null;
+      const a = acc(cur.anthropic) || first('anthropic'), c = acc(cur.codex) || first('codex');
       const pick = (x) => x ? { account: x.name, h5: num(x.quota?.unified5h), d7: num(x.quota?.unified7d), d7Fable: num(x.quota?.unified7dFable), d7Sonnet: num(x.quota?.unified7dSonnet), d7Reset: x.quota?.unified7dReset || null } : null;
       value = { anthropic: pick(a), codex: pick(c), at: new Date().toISOString() };
     }

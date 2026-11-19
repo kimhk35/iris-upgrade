@@ -388,7 +388,7 @@ a { color: var(--iris); }
 .wordmark { line-height: 1; transform: translateY(1px); }
 
 /* ---- 사용량 배터리 ---- */
-.limits { display: inline-flex; gap: 12px; align-items: center; }
+.limits { display: inline-flex; gap: 20px; align-items: center; } /* 배터리 사이를 넓혀 숫자가 오른쪽 배터리 것으로 보이지 않게(P18 2026-11-19) */
 
 /* ---- 모듈 버튼(헤더, 모듈이 있을 때만 생김): ⚙ 과 같은 .icon-btn + 선 아이콘(app/icons.js) + 안 읽은 수 배지 ---- */
 .mod-btns { display: inline-flex; gap: 2px; align-items: center; }
