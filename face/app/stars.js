@@ -155,7 +155,8 @@ function makeStarEngine() {
   // 별 글자의 치수 한 곳: 글자 크기·가운데(x는 자간 뒤 여백만큼 보정해 눈에 보이는 가운데가 W/2)·세로 중심·글자 아랫선(문장을 그 아래에 놓을 때 씀)
   // crest = 로마 대문자 Cinzel(자간 0.12) + 고리 — 아랫선은 고리 아래까지.
   function sigMetrics(crest) {
-    const size = Math.max(24, Math.min(W * 0.115, H * 0.28)), cy = H / 2 - Math.min(56, H * 0.08), sp = crest ? 0.12 : 0.18;
+    // crest 는 고리만큼 아래가 길어 문장이 입력창에 겹쳤다(800px 높이 실측) — 글자·고리를 크기의 0.6 만큼 위로.
+    const size = Math.max(24, Math.min(W * 0.115, H * 0.28)), cy = H / 2 - Math.min(56, H * 0.08) - (crest ? size * 0.6 : 0), sp = crest ? 0.12 : 0.18;
     return { size, sp, cx: W / 2 + size * sp / 2, cy, bottom: cy + size * (crest ? 0.72 : 0.4) };
   }
   function maskPoints(text, crest) {
