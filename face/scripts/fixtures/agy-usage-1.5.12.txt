@@ -1,0 +1,18 @@
+esc to cancel                                                                                                           Gemini 4 Neon · high
+
+▄▀▀      ▀▀▄
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+└ Models & Quota  Account: someone@example.com
+
+GEMINI MODELS
+  Models within this group: Gemini 4 Neon, Gemini 4 Hydrogen, Orchestrator (Neon), Gemini 3.8 Flash  Weekly Limit Remaining[█████████████████████████████████████████████████░] 98.94%Refreshes in 145h 49m  Five Hour Limit Remaining[█████████████████████████████████████████████████░] 98.96%Refreshes in 4h 16mCLAUDE AND GPT MODELS
+  Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B  Weekly Limit Remaining[██████████████████████████████████████████████████] 100.00%Quota available  Five Hour Limit Remaining[██████████████████████████████████████████████████] 100.00%Quota availableGEMINI 4 ARGON
+  For paid Pro plans, Argon quota is separate. Higher Argon quota (included as part of the larger Gemini quota bucket) is available on Ultra  Gemini 4 Argon Weekly Limit[██████████████████████████████████████████████████] 99.80%Refreshes in 145h 48m  │Within each group, models share a weekly limit and a 5-hour limit. Quota is
+  │consumed proportionally to the cost of the tokens. Thus, limits will last
+  │longer with shorter tasks or using more cost-effective models. The 5-hour
+  │limit smooths out aggregate demand to fairly distribute global capacity
+  │across all users, while your weekly limit is tied directly to your individual
+  (1–37 of 38 lines)  ↑/↓ Scroll · pgup/pgdown Page · ctrl+end Bottom · ctrl+home Top · esc CloseGemini 4 Neon · high

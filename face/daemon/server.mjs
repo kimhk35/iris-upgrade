@@ -9,7 +9,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { SessionManager, autoResumeState } from './sessions.mjs';
 import { titleFromPrompt } from './title.mjs';
-import { AGENTS, setModelRefresher, agyExe } from './agents.mjs';
+import { AGENTS, setModelRefresher, agyExe, AGY_HOME } from './agents.mjs';
+import { GeminiUsage } from './geminiusage.mjs';
 import { ModelCatalog } from './models.mjs';
 import { TranscriptTail } from './transcript.mjs';
 import { SubagentWatcher } from './subagents.mjs';
@@ -118,6 +119,9 @@ sleepWatcher.start();
 const models = new ModelCatalog({ AGENTS, env: () => childEnv(), codexHome: CODEX_HOME, cacheFile: path.join(STATE, 'model-scan.json'), log: (m) => log(m), agyExe: () => agyExe(childEnv()) });
 setModelRefresher(() => { if (models.refresh()) broadcast(agentsMsg()); models.refreshGemini({ onChange: () => broadcast(agentsMsg()) }); }); // Gemini 목록은 뒤에서(P18)
 models.refreshGemini({ force: true, onChange: () => broadcast(agentsMsg()) }); // 켜자마자 한 번 — 처음 PC 도 손 표 3개가 아니라 agy 목록으로
+// Gemini 사용량(P18 2026-11-19): 10분마다 agy /usage 화면을 숨은 터미널로 읽어 stategemini-usage.json — 대시보드 GEMINI 칸·머리줄 배터리. 끄기 = IRIS_FACE_GEMINI_USAGE=0
+const geminiUsage = new GeminiUsage({ stateDir: STATE, agyExe: () => agyExe(childEnv()), agyHome: AGY_HOME, env: () => childEnv(), log: (m) => log(m), intervalMs: process.env.IRIS_FACE_GEMINI_USAGE === '0' ? 0 : 600000 });
+geminiUsage.start();
 try { models.refresh({ force: true }); log(`models: claude=${models.info().claude.source} ${AGENTS.claude.models.map((m) => `${m.id}=${m.label}`).join(', ')}`); } catch (e) { log(`models init error: ${e?.message || e}`); }
 setInterval(() => { try { if (models.refresh()) broadcast(agentsMsg()); } catch {} }, 10 * 60_000).unref();
 // ---- 모듈 콘센트(계약 v1, 2026-09-11): modules\<이름>\ 을 별 프로세스로. 모듈이 없으면 아무것도 하지 않는다(바깥 연결 0 = verify:nomodule). ----
@@ -349,6 +353,8 @@ const server = http.createServer(async (req, res) => {
     // v2.76: 버튼 옆 안내의 재료 — 에이전트별 계정 수(null = 판단 안 함)·프로그램 없음·잠든 목록.
     if (req.method === 'GET' && p === '/api/agents/status') return json(res, 200, agentStatus());
     if (req.method === 'GET' && p === '/api/limits') return json(res, 200, await readLimits());
+    if (req.method === 'GET' && p === '/api/gemini/usage') return json(res, 200, geminiUsage.get());
+    if (req.method === 'POST' && p === '/api/gemini/usage/refresh') return json(res, 200, await geminiUsage.refresh());
     if (req.method === 'GET' && p === '/api/usage/local') return json(res, 200, localUsage.get({ force: url.searchParams.get('force') === '1' }));
     if (req.method === 'GET' && p === '/api/usage/share') return json(res, 200, { enabled: !!dashBase, ...shareMeter.info() });
     // 메모리 계기판(v2.78): 최근 30분 기록 · 많이 차지하는 것(펼쳤을 때만, 8초 캐시) · 잔여물 미리보기(종료 안 함, 같은 출처만)
