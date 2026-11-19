@@ -456,7 +456,7 @@ window.Settings = (() => {
   // ---- 정보(만든 사람) 대화상자 — 값은 전부 데몬 /api/health 의 about(원천 = package.json). 데몬이 아직 없으면 화면 쪽 기본값. ----
   const ABOUT_DEF = { name: 'IRIS', version: '—', author: 'Sejun Ham (함세준)', homepage: 'https://feynman520.github.io/card/#home', license: 'MIT', since: '2026-09-08', motto: '해결은 에이전트가, 정의는 우리가.' };
   // 고도화판(P18, 2026-11-20 사용자 요청): 원본 주소 + Developer McKay + 약력 — 원작자 표시(만든 사람)는 그대로 둔다
-  const DEV = { name: 'McKay', home: 'https://iris.mathmckay.kr', origin: 'https://iris-workspace.com/', bio: [] };
+  const DEV = { name: 'McKay', home: 'https://iris.mathmckay.kr', origin: 'https://iris-workspace.com/', bio: ['교육학 박사', '아주대학교 교육대학원 겸임교수', '경기도교육청 수학교사'] };
   function about() {
     const a = { ...ABOUT_DEF, ...(health?.about || {}) };
     const card = a.homepage.replace(/^https?:\/\//, '').replace(/\/?#.*$/, '');
