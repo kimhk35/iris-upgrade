@@ -127,47 +127,71 @@ function makeStarEngine() {
   // 색 문자열은 캐시에서 꺼낸다(알파 1/100 단위 양자화, 색 3종 × 101 = 최대 303개). 매 프레임 별마다 새 `rgba(...)` 문자열을 만들면
   // 크로미엄이 fillStyle에 넣은 문자열을 외부 문자열로 등록해 표가 수만 개로 불고, 주요 GC마다 그 표를 비우느라 30~45ms씩 멈춘다(2026-09-10 실측 — 끊김의 원인).
   const colCache = new Map();
+  // 문장(crest) 서명(P18 2026-11-19 사용자 결정 = 확인용\IRIS글자-비교.html 3번): 글자에 모인 별은 모이는 정도(g 0~6)만큼 금빛으로 물들고,
+  // 다 모이면 빛줄기(sigSweep = 화면 폭 기준 위치)가 지나가며 밝힌다. 금색은 테마 별 색과 30% 섞어 밝은 테마에서도 보이게. 캐시 열쇠 = (g·3 + 색) · 128 + 알파.
+  const GOLD = ['212,175,55', '247,231,180', '255,246,216'];
+  const mixRgb = (a, b, t) => { const x = a.split(',').map(Number), y = b.split(',').map(Number); return x.map((v, i) => Math.round(v + (y[i] - v) * t)).join(','); };
   const col = (p, al) => {
-    const a = Math.round(Math.max(0, Math.min(1, al)) * 100), key = (p.hue < 0.7 ? 0 : p.hue < 0.9 ? 1 : 2) * 128 + a;
+    const h = p.hue < 0.7 ? 0 : p.hue < 0.9 ? 1 : 2;
+    let g = 0;
+    if (sigCrest && sigK > 0 && p.tx != null) {
+      g = Math.round(sigK * 6);
+      if (sigSweep > -1 && p._bx != null) { const dx = p._bx / W - sigSweep; al += Math.exp(-(dx * dx) / 0.004) * 0.9; }
+    }
+    const a = Math.round(Math.max(0, Math.min(1, al)) * 100), key = (g * 3 + h) * 128 + a;
     let s = colCache.get(key);
-    if (s === undefined) { s = `rgba(${p.hue < 0.7 ? colors.a : p.hue < 0.9 ? colors.b : colors.c},${a / 100})`; colCache.set(key, s); }
+    if (s === undefined) {
+      const base = h === 0 ? colors.a : h === 1 ? colors.b : colors.c;
+      s = `rgba(${g ? mixRgb(base, mixRgb(GOLD[h], base, 0.3), g / 6) : base},${a / 100})`; colCache.set(key, s);
+    }
     return s;
   };
 
   // ---- 서명(2026-09-10 각인): 별들이 잠시 글자 모양으로 모였다가 제자리로. 별 개수·스타일은 손대지 않고 그리는 자리만 섞는다. ----
   const SIG = { in: 1.6, hold: 2.5, out: 1.2 }; // 초
   let sig = null, sigK = 0; const maskCache = new Map();
+  // 문장(crest) 상태: sigCrest = 금빛·고리·빛줄기를 쓰는 서명(시작 인트로), sigNow = 서명 경과 초(고리 회전), sigSweep = 빛줄기 위치(-9 = 없음), ring = 고리 타원
+  let sigCrest = false, sigNow = 0, sigSweep = -9, ring = null;
   // 별 글자의 치수 한 곳: 글자 크기·가운데(x는 자간 뒤 여백만큼 보정해 눈에 보이는 가운데가 W/2)·세로 중심·글자 아랫선(문장을 그 아래에 놓을 때 씀)
-  function sigMetrics() {
-    const size = Math.max(24, Math.min(W * 0.115, H * 0.28)), cy = H / 2 - Math.min(56, H * 0.08);
-    return { size, cx: W / 2 + size * 0.09, cy, bottom: cy + size * 0.4 };
+  // crest = 로마 대문자 Cinzel(자간 0.12) + 고리 — 아랫선은 고리 아래까지.
+  function sigMetrics(crest) {
+    const size = Math.max(24, Math.min(W * 0.115, H * 0.28)), cy = H / 2 - Math.min(56, H * 0.08), sp = crest ? 0.12 : 0.18;
+    return { size, sp, cx: W / 2 + size * sp / 2, cy, bottom: cy + size * (crest ? 0.72 : 0.4) };
   }
-  function maskPoints(text) {
-    const key = `${text}|${W}|${H}`; if (maskCache.has(key)) return maskCache.get(key);
+  function maskPoints(text, crest) {
+    const key = `${text}|${W}|${H}|${crest ? 'c' : ''}`; if (maskCache.has(key)) return maskCache.get(key);
     const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
-    const { size, cx, cy } = sigMetrics();
-    g.font = `600 ${size}px "Segoe UI Variable Display","Segoe UI","Malgun Gothic",sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
-    try { g.letterSpacing = `${Math.round(size * 0.18)}px`; } catch {}
+    const { size, sp, cx, cy } = sigMetrics(crest);
+    g.font = crest ? `700 ${size}px "Cinzel","Palatino Linotype",serif` : `600 ${size}px "Segoe UI Variable Display","Segoe UI","Malgun Gothic",sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    try { g.letterSpacing = `${Math.round(size * sp)}px`; } catch {}
     g.fillStyle = '#fff'; g.fillText(text, cx, cy);
     const d = g.getImageData(0, 0, W, H).data, out = []; const step = Math.max(2, Math.round(size / 26));
     for (let y = 0; y < H; y += step) for (let x = 0; x < W; x += step) if (d[(y * W + x) * 4 + 3] > 128) out.push([x, y]);
-    maskCache.set(key, out); return out;
+    if (!crest || document.fonts?.check?.(`700 20px "Cinzel"`) !== false) maskCache.set(key, out); // 글꼴이 아직 안 왔으면 대체 글꼴 모양을 기억하지 않는다
+    return out;
   }
   /** 글자 서명 시작. 별이 글자를 만들 수 없는 경우(끔·별자리·움직임 줄이기·별 없음)는 false — 호출한 쪽이 글자만 보여 준다. */
-  /** 지금 별들에 글자점 목표를 준다(서명 시작 때 + 서명 중에 창 크기가 바뀌어 별을 새로 만들었을 때 — 안 하면 막 켠 창이 자리를 잡으며 글자가 풀렸다, P18 실측). */
-  function aim(text) {
-    const m = maskPoints(text); if (m.length < 40) return false;
+  /** 지금 별들에 글자점 목표를 준다(서명 시작 때 + 서명 중에 창 크기가 바뀌어 별을 새로 만들었을 때 — 안 하면 막 켠 창이 자리를 잡으며 글자가 풀렸다, P18 실측).
+   *  crest 면 별 14%는 글자 대신 고리(타원 위 각 th · 두께 rr)로 간다 — 그 자리는 bl() 이 매 프레임 회전시켜 계산한다. */
+  function aim(text, crest) {
+    const m = maskPoints(text, crest); if (m.length < 40) return false;
     for (let i = m.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [m[i], m[j]] = [m[j], m[i]]; } // 섞어서 별↔글자점 짝을 고르게
-    pts.forEach((p, i) => { const [x, y] = m[i % m.length]; p.tx = x + (Math.random() - 0.5) * 2.2; p.ty = y + (Math.random() - 0.5) * 2.2; });
+    if (crest) { const { size, cy } = sigMetrics(true); ring = { x: W / 2, y: cy, rx: size * 2.0, ry: size * 0.64 }; }
+    let j = 0;
+    pts.forEach((p) => {
+      if (crest && Math.random() < 0.14) { p.ring = { th: Math.random() * 6.283, rr: 1 + (Math.random() - 0.5) * 0.09 * (Math.random() < 0.8 ? 1 : 3) }; p.tx = ring.x; p.ty = ring.y; return; }
+      p.ring = null; const [x, y] = m[j++ % m.length]; p.tx = x + (Math.random() - 0.5) * 2.2; p.ty = y + (Math.random() - 0.5) * 2.2;
+    });
     return true;
   }
-  /** opts.hold(ms) = 글자로 머무는 시간(기본 2.5초 — 시작 인트로는 더 길게). */
+  /** opts.hold(ms) = 글자로 머무는 시간(기본 2.5초 — 시작 인트로는 더 길게). opts.crest = 로마 대문자·금빛·홍채 고리·빛줄기(시작 인트로). */
   function signature(text, opts = {}) {
     if (reduce || style === 'off' || style === 'constellation' || style === 'fireflies' || !pts.length || !W || !H) return false; // 별이 적은 종(별자리·반딧불)은 글자를 못 만든다
-    if (!aim(text)) return false;
+    const crest = !!opts.crest;
+    if (!aim(text, crest)) return false;
     const hold = opts.hold > 0 ? opts.hold / 1000 : SIG.hold;
-    sig = { t: performance.now(), text, hold }; kick();
-    return { in: SIG.in * 1000, hold: hold * 1000, out: SIG.out * 1000, bottom: sigMetrics().bottom }; // bottom = 별 글자 아랫선(px, 캔버스 기준)
+    sig = { t: performance.now(), text, hold, crest }; sigCrest = crest; colCache.clear(); kick();
+    return { in: SIG.in * 1000, hold: hold * 1000, out: SIG.out * 1000, bottom: sigMetrics(crest).bottom }; // bottom = 별 글자 아랫선(px, 캔버스 기준)
   }
   /** 서명 건너뛰기(인트로를 누르면): 지금 모인 정도에서 그대로 풀려나는 단계로 넘긴다(별이 튀지 않게 — 1−ease(x) = 지금 정도인 x 부터). */
   function releaseSignature() {
@@ -175,7 +199,13 @@ function makeStarEngine() {
     const x = 1 - Math.cbrt(Math.max(0, Math.min(1, sigK)));
     sig.t = performance.now() - (SIG.in + sig.hold + x * SIG.out) * 1000; kick();
   }
-  const bl = (p, x, y) => (sigK && p.tx != null) ? [x + (p.tx - x) * sigK, y + (p.ty - y) * sigK] : [x, y]; // 서명 중 창 크기가 바뀌어 별이 새로 생기면(tx 없음) 그냥 제자리
+  // 서명 중 창 크기가 바뀌어 별이 새로 생기면(tx 없음) 그냥 제자리. 고리 별은 목표가 타원 위에서 천천히 돈다. _bx = 그린 x(빛줄기 밝기용, col 이 바로 뒤에 읽음).
+  const bl = (p, x, y) => {
+    if (!(sigK && p.tx != null)) return [x, y];
+    let tx = p.tx, ty = p.ty;
+    if (p.ring && ring) { const th = p.ring.th + sigNow * 0.12; tx = ring.x + Math.cos(th) * ring.rx * p.ring.rr; ty = ring.y + Math.sin(th) * ring.ry * p.ring.rr; }
+    const fx = x + (tx - x) * sigK; p._bx = fx; return [fx, y + (ty - y) * sigK];
+  };
 
   function make() {
     pts = [];
@@ -223,7 +253,7 @@ function makeStarEngine() {
     // 섞어 두면 앞에서 live개만 그려도 고른 부분집합이 된다(구는 i 순서가 위→아래라 섞지 않으면 윗부분만 남는다). 종별 배정(i%3 등)은 생성 때 끝났다.
     all = pts; for (let i = all.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [all[i], all[j]] = [all[j], all[i]]; }
     pts = []; applyLive();
-    if (sig?.text && W && H) aim(sig.text); // 서명 중에 별을 새로 만들었으면 새 별에도 글자 목표를
+    if (sig?.text && W && H) aim(sig.text, sig.crest); // 서명 중에 별을 새로 만들었으면 새 별에도 글자 목표를
   }
   // ---- 수학 무대: 점 만들기. 모든 점은 별과 같은 꼴(크기·깜박임·색·흩어진 출발점 sx/sy)이라 모임 연출·서명·자동 조절이 그대로 통한다 ----
   function makeMath(n) {
@@ -382,7 +412,11 @@ function makeStarEngine() {
     const t = (now - t0) / 1000;
     const gather = reduce ? 1 : ease(Math.min(1, t / 1.2));
     energy += (targetEnergy - energy) * 0.03; dim += (targetDim - dim) * 0.06;
-    if (sig) { const e = (now - sig.t) / 1000, h = sig.hold; sigK = e < SIG.in ? ease(e / SIG.in) : e < SIG.in + h ? 1 : e < SIG.in + h + SIG.out ? 1 - ease((e - SIG.in - h) / SIG.out) : 0; if (e >= SIG.in + h + SIG.out) sig = null; } else sigK = 0;
+    if (sig) {
+      const e = (now - sig.t) / 1000, h = sig.hold; sigK = e < SIG.in ? ease(e / SIG.in) : e < SIG.in + h ? 1 : e < SIG.in + h + SIG.out ? 1 - ease((e - SIG.in - h) / SIG.out) : 0;
+      sigNow = e; sigSweep = sig.crest && e > SIG.in && e < SIG.in + h ? ((e - SIG.in) * 0.32 % 1.5) - 0.25 : -9; // 다 모인 동안만 빛줄기(왼→오, 약 4.7초 간격)
+      if (e >= SIG.in + h + SIG.out) { sig = null; if (sigCrest) { sigCrest = false; colCache.clear(); } }
+    } else sigK = 0;
     const cx = W / 2, cy = H / 2 - Math.min(56, H * 0.08), R = Math.min(W, H) * 0.30, k = 1 - dim * 0.8, alphaMul = 1 - dim * 0.72; // 작은 미리보기 캔버스에서도 중심이 보이게
     ctx.clearRect(0, 0, W, H);
     if (style === 'off') { raf = 0; return; }

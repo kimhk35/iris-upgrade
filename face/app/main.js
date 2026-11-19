@@ -429,6 +429,15 @@
   let railAutoHidden = false;       // 모듈 서랍이 작업목록을 대신 접었는가(v2.57, 2026-09-13 사용자 결정: 모듈 화면과 작업목록이 이중으로 보이지 않게)
   const PANEL_RE = /^http:\/\/127\.0\.0\.1:\d+\//;  // 모듈이 준 panel 주소는 로컬 127.0.0.1 뿐이어야 신뢰(콘센트가 신뢰 못 할 값을 줄 수 있음)
   const fr = $('#dash-frame');
+  // 대시보드가 IRIS 테마를 따라가게(P18 2026-11-19 사용자 결정): 서랍에 대시보드가 실릴 때·테마를 바꿀 때 지금 테마 색을 보낸다.
+  // 색 값만 담긴 말이라 받는 쪽을 가리지 않는다('*'). 대시보드는 「IRIS 따라가기」일 때만 쓴다.
+  const postDashTheme = () => {
+    if (drawerKey !== 'dash' || !fr.contentWindow) return;
+    const th = Registry.THEMES.find((t) => t.id === document.documentElement.dataset.irisTheme) || Registry.THEMES[0];
+    try { fr.contentWindow.postMessage({ type: 'iris-theme', id: th.id, vars: th.vars }, '*'); } catch {}
+  };
+  fr.addEventListener('load', postDashTheme);
+  document.addEventListener('iris:theme', postDashTheme);
   fetch('/api/health').then(r => r.json()).then((h) => {
     const f = h?.features; if (!f) return;
     MemGauge.setFeatures(f.memory);
@@ -480,7 +489,7 @@
   function toggleDash(force) {
     const open = force ?? !drawerOpenFor('dash');
     if (open && !dashEnabled) return;   // 도구 없는 PC: Ctrl+D 도 조용히 무시
-    open ? openDrawer('dash', { title: 'TeamClaude 대시보드', url: DASH_URL }) : closeDrawer();
+    open ? openDrawer('dash', { title: 'My Agent 대시보드', url: DASH_URL }) : closeDrawer();
   }
   function openModule(name) {
     const m = modules.find(x => x.name === name); if (!m || !m.panel || !PANEL_RE.test(m.panel)) return false;
@@ -814,12 +823,12 @@
   // 「First developed by HSJ」 · 「Edited by McKay」 → 문장. 누르거나 키를 누르면 건너뛴다. 설정 → 디자인 「시작 인트로」로 끈다.
   // 별로 글자를 못 만드는 무대(없음·별자리·반딧불·움직임 줄이기)는 IRIS 도 글자로(.text-only).
   // 손글씨체(3.2MB)는 미리 받고 다 받은 뒤 띄운다(최대 2.5초 더 기다림 — v2.97.1 대체 글자체 사건).
-  const sigFont = (document.fonts?.load?.('40px "Nanum Pen Script"') || Promise.resolve()).catch(() => {});
+  const sigFont = Promise.all([document.fonts?.load?.('40px "Nanum Pen Script"'), document.fonts?.load?.('40px "Pinyon Script"'), document.fonts?.load?.('700 40px "Cinzel"')].filter(Boolean)).catch(() => {}); // 이름 필기체(P18 2026-11-19)도 함께
   function intro() {
     if (current || Settings.get().intro === false) return;
     const el = $('#intro');
     $('#intro-motto').textContent = Settings.health()?.about?.motto || '해결은 에이전트가, 정의는 우리가.';
-    const r = IrisStars.signature('IRIS', { hold: 4000 }); // 별 글자가 문장까지 다 나온 뒤에 풀리게(기본 2.5초는 짧았음)
+    const r = IrisStars.signature('IRIS', { hold: 4000, crest: true }); // crest = 로마 대문자·금빛·홍채 고리·빛줄기(P18 2026-11-19). 별 글자가 문장까지 다 나온 뒤에 풀리게(기본 2.5초는 짧았음)
     el.classList.toggle('text-only', !r);
     el.classList.toggle('placed', !!r); el.style.top = r ? `${Math.round(r.bottom + 30)}px` : '';
     el.classList.remove('run', 'leave'); void el.offsetWidth; el.hidden = false; el.classList.add('run');

@@ -24,6 +24,7 @@ window.Settings = (() => {
     for (const [k, v] of Object.entries(th.vars)) { root.setProperty(k, v); themeKeys.add(k); }
     document.documentElement.dataset.irisTheme = th.id; // data-theme 는 패널의 클릭 위임 선택자와 겹치므로 쓰지 않는다
     IrisStars.configure({ colors: { a: th.vars['--star-a'], b: th.vars['--star-b'], c: th.vars['--star-c'], glow: th.vars['--glow'] } });
+    document.dispatchEvent(new CustomEvent('iris:theme')); // 대시보드 서랍이 열려 있으면 같은 색으로(main.js postDashTheme)
   }
   function markSvg(m, cls = 'mark') { return `<svg class="${cls} mk-${m.id}" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">${m.svg}</svg>`; }
   function markCss(m, scope) { return m.css.replace(/\.a(\d)/g, `${scope}.mk-${m.id} .a$1`); }
@@ -92,7 +93,7 @@ window.Settings = (() => {
     try {
       const r = await fetch('/api/limits'); const l = await r.json(); const a = l?.anthropic, c = l?.codex; const L = (v) => v == null ? '?' : left(v) + '%';
       $('#limits').innerHTML = l
-        ? battery('Claude', a?.account, a?.d7, `왕관 계정 ${a?.account || '?'} — 남은 잔량: 주간 ${L(a?.d7)} · Fable 주간 ${L(a?.d7Fable)} · 5시간 ${L(a?.h5)}  (누르면 TeamClaude 대시보드)`) + battery('Codex', c?.account, c?.d7, `왕관 계정 ${c?.account || '?'} — 남은 잔량: 주간 ${L(c?.d7)} · 5시간 ${L(c?.h5)}  (누르면 TeamClaude 대시보드)`)
+        ? battery('Claude', a?.account, a?.d7, `왕관 계정 ${a?.account || '?'} — 남은 잔량: 주간 ${L(a?.d7)} · Fable 주간 ${L(a?.d7Fable)} · 5시간 ${L(a?.h5)}  (누르면 My Agent 대시보드)`) + battery('Codex', c?.account, c?.d7, `왕관 계정 ${c?.account || '?'} — 남은 잔량: 주간 ${L(c?.d7)} · 5시간 ${L(c?.h5)}  (누르면 My Agent 대시보드)`)
         : '<span class="batt-off">대시보드</span>';
     } catch { $('#limits').innerHTML = '<span class="batt-off">대시보드</span>'; }
   }
