@@ -95,9 +95,9 @@ window.Settings = (() => {
       // Gemini(P18 2026-11-19): 중계기 밖 — 데몬이 10분마다 agy /usage 를 읽어 둔 값. 읽은 적이 없거나 agy 가 없으면 배터리를 그리지 않는다.
       let gem = null; try { gem = await (await fetch('/api/gemini/usage')).json(); } catch {}
       const gg = gem?.groups?.find((x) => x.key === 'gemini'), gu = (w) => w && Number.isFinite(w.left) ? 1 - w.left : null;
-      const gBatt = gg ? battery('Gemini', gem.account, gu(gg.d7), `Gemini 계정 ${gem.account || '?'} — 남은 잔량: 주간 ${L(gu(gg.d7))} · 5시간 ${L(gu(gg.h5))}${gem.ok ? '' : ' · 마지막 읽기 실패(지난 값)'}  (누르면 My Agent 대시보드)`) : '';
+      const gBatt = gg ? battery('Gemini', gem.account, gu(gg.d7), `Gemini 계정 ${gem.account || '?'} — 남은 잔량: 주간 ${L(gu(gg.d7))}${gg.h5 ? ` · 5시간 ${L(gu(gg.h5))}` : ""}${gem.ok ? '' : ' · 마지막 읽기 실패(지난 값)'}  (누르면 My Agent 대시보드)`) : '';
       $('#limits').innerHTML = l
-        ? battery('Claude', a?.account, a?.d7, `왕관 계정 ${a?.account || '?'} — 남은 잔량: 주간 ${L(a?.d7)} · Fable 주간 ${L(a?.d7Fable)} · 5시간 ${L(a?.h5)}  (누르면 My Agent 대시보드)`) + battery('Codex', c?.account, c?.d7, `왕관 계정 ${c?.account || '?'} — 남은 잔량: 주간 ${L(c?.d7)}${/^pro/i.test(c?.plan || "") ? "" : ` · 5시간 ${L(c?.h5)}`}  (누르면 My Agent 대시보드)`) + gBatt
+        ? battery('Claude', a?.account, a?.d7, `왕관 계정 ${a?.account || '?'} — 남은 잔량: 주간 ${L(a?.d7)}${a?.d7Fable != null ? ` · Fable 주간 ${L(a.d7Fable)}` : ""}${a?.h5 != null ? ` · 5시간 ${L(a.h5)}` : ""}  (누르면 My Agent 대시보드)`) + battery('Codex', c?.account, c?.d7, `왕관 계정 ${c?.account || '?'} — 남은 잔량: 주간 ${L(c?.d7)}${/^pro/i.test(c?.plan || "") || c?.h5 == null ? "" : ` · 5시간 ${L(c.h5)}`}  (누르면 My Agent 대시보드)`) + gBatt
         : '<span class="batt-off">대시보드</span>';
     } catch { $('#limits').innerHTML = '<span class="batt-off">대시보드</span>'; }
   }
