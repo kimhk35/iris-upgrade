@@ -421,13 +421,17 @@ a { color: var(--iris); }
 .mod-btn.installing::after { content: ''; position: absolute; right: 0; bottom: 0; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--iris); border-top-color: transparent; background: var(--base); box-shadow: 0 0 0 2px var(--base); animation: mod-spin .8s linear infinite; }
 @keyframes mod-spin { to { transform: rotate(360deg); } }
 
-.batt { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); }
+.batt { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
 .batt-label { color: var(--ink-3); }
 .batt-body { position: relative; width: 44px; height: 12px; border: 1.5px solid var(--ink-3); border-radius: 3px; padding: 1.5px; }
 .batt-body::after { content: ''; position: absolute; right: -4.5px; top: 2.5px; width: 3px; height: 5px; border-radius: 0 2px 2px 0; background: var(--ink-3); }
 .batt-fill { display: block; height: 100%; border-radius: 1.5px; background: var(--ok); transition: width .6s; }
-.batt.warn .batt-fill { background: var(--warn); } .batt.bad .batt-fill { background: var(--bad); }
-.batt.warn .batt-pct { color: var(--warn); } .batt.bad .batt-pct { color: var(--bad); }
+.batt-win { display: inline-flex; align-items: center; gap: 5px; } /* 제한 칸 하나(P18 2026-11-19 — 계정에 있는 5시간·주간을 각각) */
+.batt-win.warn .batt-fill { background: var(--warn); } .batt-win.bad .batt-fill { background: var(--bad); }
+.batt-tag { font-size: 10px; color: var(--ink-3); white-space: nowrap; }
+.batt-body.sm { width: 30px; }
+.batt.warn .batt-label { color: var(--warn); } .batt.bad .batt-label { color: var(--bad); }
+.batt-win.warn .batt-pct { color: var(--warn); } .batt-win.bad .batt-pct { color: var(--bad); }
 .batt-pct { font-variant-numeric: tabular-nums; min-width: 30px; text-align: right; }
 .batt-off { font-size: 12px; color: var(--ink-3); }
 .crown { color: var(--warn); font-size: 11px; }

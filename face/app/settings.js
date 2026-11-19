@@ -83,9 +83,15 @@ window.Settings = (() => {
   // ---- 배터리 = 현재 우선(왕관) 계정의 **남은 주간 잔량**(100 − 사용률) ----
   const left = (v) => v == null ? null : Math.max(0, Math.min(100, Math.round((1 - v) * 100)));
   const shortAcc = (a) => (a || '?').replace(/@.*/, '');
-  function battery(label, acc, v, title) {
-    const p = left(v); const lvl = p == null ? 'na' : p <= 15 ? 'bad' : p <= 40 ? 'warn' : 'ok';
-    return `<span class="batt ${lvl}" title="${esc(title)}"><span class="batt-label">${label}</span><span class="batt-body"><span class="batt-fill" style="width:${p ?? 0}%"></span></span><span class="batt-pct">${p == null ? '—' : p + '%'}</span></span>`;
+  // 배터리(P18 2026-11-19 사용자 결정): 계정(요금제)에 있는 제한을 각각 — wins = [{ tag: '5시간'|'주간', v: 사용률 }], 값 없는 제한은 넘기지 않는다.
+  // 칸마다 제 색(남은 15% 이하 빨강·40% 이하 노랑), 이름표 색은 둘 중 더 급한 쪽. 제한이 하나면 옛 모양 그대로(작은 이름표 없음).
+  function battery(label, acc, wins, title) {
+    const lv = (p) => p == null ? 'na' : p <= 15 ? 'bad' : p <= 40 ? 'warn' : 'ok';
+    const ws = (wins.length ? wins : [{ tag: '주간', v: null }]).map((w) => ({ ...w, p: left(w.v) }));
+    const known = ws.filter((w) => w.p != null), worst = known.length ? lv(Math.min(...known.map((w) => w.p))) : 'na';
+    const one = ws.length === 1;
+    const cell = (w) => `<span class="batt-win ${lv(w.p)}">${one ? '' : `<small class="batt-tag">${w.tag}</small>`}<span class="batt-body${one ? '' : ' sm'}"><span class="batt-fill" style="width:${w.p ?? 0}%"></span></span><span class="batt-pct">${w.p == null ? '—' : w.p + '%'}</span></span>`;
+    return `<span class="batt ${worst}" title="${esc(title)}"><span class="batt-label">${label}</span>${ws.map(cell).join('')}</span>`;
   }
   async function loadLimits() {
     // TeamClaude 도구가 없는 PC(데몬 features.dashboard === false)면 배터리 자리를 통째로 숨긴다 — main.js 가 같은 신호로 Ctrl+D 서랍도 끈다.
@@ -95,9 +101,11 @@ window.Settings = (() => {
       // Gemini(P18 2026-11-19): 중계기 밖 — 데몬이 10분마다 agy /usage 를 읽어 둔 값. 읽은 적이 없거나 agy 가 없으면 배터리를 그리지 않는다.
       let gem = null; try { gem = await (await fetch('/api/gemini/usage')).json(); } catch {}
       const gg = gem?.groups?.find((x) => x.key === 'gemini'), gu = (w) => w && Number.isFinite(w.left) ? 1 - w.left : null;
-      const gBatt = gg ? battery('Gemini', gem.account, gu(gg.d7), `Gemini 계정 ${gem.account || '?'} — 남은 잔량: 주간 ${L(gu(gg.d7))}${gg.h5 ? ` · 5시간 ${L(gu(gg.h5))}` : ""}${gem.ok ? '' : ' · 마지막 읽기 실패(지난 값)'}  (누르면 My Agent 대시보드)`) : '';
+      const W = (h5, d7) => [h5 != null ? { tag: '5시간', v: h5 } : null, { tag: '주간', v: d7 ?? null }].filter(Boolean);
+      const cH5 = /^pro/i.test(c?.plan || '') ? null : c?.h5; // Codex Pro(pro·prolite)는 5시간 제한 없음
+      const gBatt = gg ? battery('Gemini', gem.account, W(gu(gg.h5), gu(gg.d7)), `Gemini 계정 ${gem.account || '?'} — 남은 잔량: 주간 ${L(gu(gg.d7))}${gg.h5 ? ` · 5시간 ${L(gu(gg.h5))}` : ""}${gem.ok ? '' : ' · 마지막 읽기 실패(지난 값)'}  (누르면 My Agent 대시보드)`) : '';
       $('#limits').innerHTML = l
-        ? battery('Claude', a?.account, a?.d7, `왕관 계정 ${a?.account || '?'} — 남은 잔량: 주간 ${L(a?.d7)}${a?.d7Fable != null ? ` · Fable 주간 ${L(a.d7Fable)}` : ""}${a?.h5 != null ? ` · 5시간 ${L(a.h5)}` : ""}  (누르면 My Agent 대시보드)`) + battery('Codex', c?.account, c?.d7, `왕관 계정 ${c?.account || '?'} — 남은 잔량: 주간 ${L(c?.d7)}${/^pro/i.test(c?.plan || "") || c?.h5 == null ? "" : ` · 5시간 ${L(c.h5)}`}  (누르면 My Agent 대시보드)`) + gBatt
+        ? battery('Claude', a?.account, W(a?.h5, a?.d7), `왕관 계정 ${a?.account || '?'} — 남은 잔량: 주간 ${L(a?.d7)}${a?.d7Fable != null ? ` · Fable 주간 ${L(a.d7Fable)}` : ""}${a?.h5 != null ? ` · 5시간 ${L(a.h5)}` : ""}  (누르면 My Agent 대시보드)`) + battery('Codex', c?.account, W(cH5, c?.d7), `왕관 계정 ${c?.account || '?'} — 남은 잔량: 주간 ${L(c?.d7)}${/^pro/i.test(c?.plan || "") || c?.h5 == null ? "" : ` · 5시간 ${L(c.h5)}`}  (누르면 My Agent 대시보드)`) + gBatt
         : '<span class="batt-off">대시보드</span>';
     } catch { $('#limits').innerHTML = '<span class="batt-off">대시보드</span>'; }
   }
