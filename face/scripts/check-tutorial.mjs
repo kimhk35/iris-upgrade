@@ -230,7 +230,10 @@ else {
     await p.locator('.tu-steps li[data-chap="three"]').click(); await sleep(200);
     for (let i = 0; i < 4; i++) { await p.locator('[data-nav="next"]').click(); await sleep(150); }
     // 내 폴더(26쪽 뒤): 성별 → 역할 카드(× 빼기 · + 추가) → 폴더 나무 → 확인 창 → 승인해야 「다음」
-    ok(await pno() === '27 / 44' && await p.locator('.tu-deck').isHidden() && (await p.locator('.tu-gpick .tu-gcard').count()) === 2, `6 26쪽 다음 = 내 폴더 · 성별 먼저(남성·여성) (${await pno()})`);
+    // P18(2026-11-20): 내 폴더 맨 앞 = 갈림길(AI 인터뷰 추천 · 직접 · 나중에) — 첫 실행은 고르기 전에도 「다음」 잠김
+    ok(await pno() === '27 / 44' && await p.locator('.tu-deck').isHidden() && (await p.locator('.tu-ways .tu-way').count()) === 3 && await p.locator('.tu-way.rec[data-way="interview"]').isVisible() && await p.locator('[data-nav="next"]').isDisabled(), `6 26쪽 다음 = 내 폴더 갈림길(인터뷰·직접·나중에) · 「다음」 잠김 (${await pno()})`);
+    await p.locator('.tu-way[data-way="manual"]').click(); await sleep(400);
+    ok((await p.locator('.tu-gpick .tu-gcard').count()) === 2, '6 「직접 만들기」 = 성별 먼저(남성·여성)');
     ok(await p.locator('[data-nav="next"]').isDisabled() && await p.locator('.tu-gate').isVisible(), '6 내 폴더: 폴더를 만들기 전엔 「다음」 잠김 + 안내');
     await p.keyboard.press('ArrowRight'); await sleep(150);
     ok(await pno() === '27 / 44', '6 → 키로도 잠금을 넘지 못함');
@@ -468,6 +471,9 @@ else {
     // 이미 역할 폴더가 있는 다시 보기: 실제 구조를 「이미 있음」으로 · 잠금 없음 · 같은 한글 이름은 그 폴더로
     await p.locator('.tu-steps li[data-chap="three"]').click(); await sleep(150); for (let i = 0; i < 4; i++) { await p.locator('[data-nav="next"]').click(); await sleep(150); }
     await sleep(300);
+    // P18 갈림길: 다시 보기에도 먼저 뜬다 — 다시 보기(역할 폴더 있음)는 고르기 전에도 「다음」이 열려 있고, 「직접 만들기」로 들어간다
+    ok(await p.locator('.tu-ways').isVisible() && !(await p.locator('[data-nav="next"]').isDisabled()), '7 다시 보기 내 폴더 = 갈림길 먼저 · 잠금 없음');
+    if (await p.locator('.tu-way[data-way="manual"]').isVisible()) { await p.locator('.tu-way[data-way="manual"]').click(); await sleep(400); }
     const exCards = await p.locator('.tu-rc.exist').count();
     ok(exCards === 1 && (await p.locator('.tu-rc.exist .tu-rx').count()) === 0 && /이미 있음/.test(await p.locator('.tu-rc.exist').textContent()) && !(await p.locator('[data-nav="next"]').isDisabled()) && !(await p.evaluate(() => document.querySelector('.tu-steps li[data-chap="lab"]').classList.contains('lock'))), `7 다시 보기 내 폴더 = 실제 역할 카드 「이미 있음」(× 없음) · 「다음」·장 잠금 없음 (${exCards}장)`);
     await shot('r-grid');

@@ -222,3 +222,12 @@
   .tu-steps li em { display: none; }
   .tu-pill { white-space: normal; text-align: center; width: calc(100% - 48px); }
 }
+/* P18(2026-11-20): 내 폴더 만들기 갈림길 — AI 인터뷰 · 직접 · 나중에 */
+.tu .tu-ways { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-content: start; margin-top: 8px; }
+.tu .tu-way { display: flex; flex-direction: column; gap: 10px; text-align: left; padding: 22px 20px; border-radius: 18px; border: 1.5px solid var(--tu-line-2); background: var(--tu-card); color: var(--tu-ink); cursor: pointer; font: inherit; transition: border-color .15s, transform .15s, box-shadow .15s; }
+.tu .tu-way:hover, .tu .tu-way:focus-visible { border-color: var(--tu-acc); transform: translateY(-2px); box-shadow: 0 10px 26px rgba(33,73,239,.12); outline: none; }
+.tu .tu-way b { font-size: 19px; line-height: 1.35; }
+.tu .tu-way b em { font-style: normal; font-size: 12px; font-weight: 700; color: #fff; background: var(--tu-acc); border-radius: 999px; padding: 2px 9px; margin-left: 6px; vertical-align: 2px; }
+.tu .tu-way small { font-size: 14px; line-height: 1.65; color: var(--tu-ink-2); }
+.tu .tu-way.rec { border-color: var(--tu-acc); background: linear-gradient(180deg, var(--tu-acc-soft), var(--tu-card) 60%); }
+@media (max-width: 900px) { .tu .tu-ways { grid-template-columns: 1fr; } }

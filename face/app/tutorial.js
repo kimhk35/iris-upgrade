@@ -119,7 +119,7 @@ window.Tutorial = (() => {
   const PERIOD_OPTS = () => { const y = info?.year || new Date().getFullYear(); return ['', `${y}년`, `${y}년.1학기`, `${y}년.2학기`, `${y + 1}년`]; };
   const LV = ['', '역할', '영역', '프로젝트'];
   // 역할 = { ko, existing?(실제 폴더 이름), code?, domains:[{ ko, existing?, code?, group?, tags?, projects:[{ ko, period, existing?, code?, tags? }] }] }
-  let roles = [], view = 'grid', active = 0, adding = false, made = '', madeN = 0, madeOpen = '', planSkipped = false, leaving = false, undo = null, modal = false, codeMap = new Map();
+  let buildWay = '', roles = [], view = 'grid', active = 0, adding = false, made = '', madeN = 0, madeOpen = '', planSkipped = false, leaving = false, undo = null, modal = false, codeMap = new Map();
   const newP = (d) => d.projects.filter(p => !p.existing);
   const sentP = (d) => newP(d).filter(p => p.ko.trim());
   const sentD = (r) => r.domains.filter(d => d.existing ? sentP(d).length > 0 : d.ko.trim());
@@ -142,6 +142,23 @@ window.Tutorial = (() => {
     return ex.roles.map(r => ({ ko: r.ko, existing: r.name, code: r.code, domains: r.domains.map(d => ({ ko: d.ko, existing: d.name, code: d.code, group: d.group, tags: d.tags || [], projects: d.projects.map(p => ({ ko: p.ko, existing: p.name, code: p.code, tags: p.tags || [], period: '' })) })) }));
   }
 
+  /** P18(2026-11-20 사용자 요청): 내 폴더 만들기 갈림길 — AI 인터뷰(세팅가이드 2부) · 직접 만들기(아래 카드·나무) · 나중에 */
+  function waysHtml() {
+    const card = (way, t, s, rec) => `<button class="tu-way${rec ? ' rec' : ''}" type="button" data-way="${way}"><b>${t}${rec ? ' <em>추천</em>' : ''}</b><small>${s}</small></button>`;
+    return `<div class="tu-bt"><div class="tu-k">내 폴더 만들기</div><h2 class="sm">폴더를 <span>어떻게</span> 만들까요?</h2>
+        <p class="tu-lead">역할 → 영역 → 프로젝트 폴더가 AI 의 <b>지도</b>가 됩니다. 셋 중 편한 길을 고르세요.</p></div>
+      <div class="tu-ways">${card('interview', 'AI 와 인터뷰로 만들기', 'AI 가 한 번에 하나씩 물어보고(역할 → 순서 → 요즘 하는 일), 폴더 지도를 그려 보여 준 뒤 「좋아요」 하면 만들어요. 입력창에 요청이 채워지고 보내기는 직접 눌러요.', true)}
+        ${card('manual', '직접 만들기', '역할 카드를 고르고 폴더 나무를 내 손으로 고쳐서 만들어요.')}
+        ${card('later', '나중에', '지금은 건너뛰어요. 설정 → 업데이트·정보 → 「인터뷰로 폴더 만들기」로 언제든 할 수 있어요.')}</div>`;
+  }
+  /** 인터뷰 = 튜토리얼을 닫고(보던 쪽은 남김) IRIS 폴더에서 Claude 입력창에 인터뷰 요청문을 채운다 — 보내기는 사용자. 요청문 원본 = app/tutorial/interview-prompt.md */
+  async function interview() {
+    let text = ''; try { const r = await fetch('/app/tutorial/interview-prompt.md'); if (r.ok) text = (await r.text()).trim(); } catch {}
+    if (!text) text = '내 삶의 역할을 인터뷰해서 IRIS 폴더(역할 → 영역 → 프로젝트)를 만들어 줘. 한 번에 하나씩 물어봐 줘.';
+    if (!info) info = await (await fetch('/api/tutorial')).json().catch(() => null);
+    close();
+    try { opts.onFirstChat({ path: info?.root || '', rel: '', name: info?.rootName || 'IRIS', agent: 'claude', text }); } catch {}
+  }
   function genderHtml() {
     return `<div class="tu-bt"><div class="tu-k">내 폴더 만들기</div><h2 class="sm">먼저 <span>내 모습</span>을 골라 주세요</h2>
         <p class="tu-lead">역할마다 이 사람의 <b>다른 모습</b>이 하나씩 붙습니다. 나중에 바꿀 수 있어요.</p></div>
@@ -296,6 +313,10 @@ window.Tutorial = (() => {
     root.addEventListener('click', async (e) => {
       if (!e.target.closest('.tu-q-host')) return;
       const b = e.target.closest('button'), card = e.target.closest('[data-role]');
+      if (b?.dataset.way) { // P18 갈림길: 인터뷰 · 직접 · 나중에
+        if (b.dataset.way === 'interview') return interview();
+        buildWay = b.dataset.way; if (buildWay === 'later') return go(step + 1); repaint(); return;
+      }
       if (b?.dataset.gender) { await Persona.setGender(b.dataset.gender); repaint(); return; }
       if (b?.dataset.rx != null) { const i = +b.dataset.rx; if (roles[i]?.existing) return; undo = { role: roles[i], at: i }; roles.splice(i, 1); touched(); repaint(); schedulePlan(); return; }
       if (b?.dataset.act === 'rm-role') { const r = roles[active]; if (!r || r.existing) return; undo = { role: r, at: active }; roles.splice(active, 1); view = 'grid'; touched(); repaint(); schedulePlan(); return; }
@@ -331,7 +352,7 @@ window.Tutorial = (() => {
 
   // ---------- 장면 그리기 · 이동 ----------
   /** 「다음」·장 머리는 내 폴더에서 폴더를 만들어야(승인) 열린다 — 역할 폴더가 하나도 없던 첫 실행에만. */
-  const locked = () => firstRun && made !== 'made';
+  const locked = () => firstRun && made !== 'made' && buildWay !== 'later'; // 「나중에」를 고르면 첫 실행도 지나갈 수 있다(P18)
   function gate() {
     const root = el(); if (!root) return; const nx = $('[data-nav="next"]', root), on = SCENES[step]?.kind === 'build' && locked();
     nx.disabled = on; nx.title = on ? '폴더 구조를 확인하고 「폴더 만들기」를 눌러야 넘어갈 수 있어요' : '';
@@ -350,7 +371,8 @@ window.Tutorial = (() => {
     else {
       deck.hidden = true; pauseVideos(); body.hidden = false;
       body.className = `tu-body sc-${sc.kind}`; body.scrollTop = 0;
-      if (sc.kind === 'build') { if (!Persona.gender()) view = 'grid'; body.innerHTML = `<div class="tu-q-host v-${!Persona.gender() ? 'gender' : view}">${buildHtml()}</div>`; const h = $('.tu-q-host', body); Persona.watch(h); Persona.fit(h); schedulePlan(); }
+      if (sc.kind === 'build' && !buildWay) body.innerHTML = `<div class="tu-q-host v-ways">${waysHtml()}</div>`;
+      else if (sc.kind === 'build') { if (!Persona.gender()) view = 'grid'; body.innerHTML = `<div class="tu-q-host v-${!Persona.gender() ? 'gender' : view}">${buildHtml()}</div>`; const h = $('.tu-q-host', body); Persona.watch(h); Persona.fit(h); schedulePlan(); }
       else { const n = NATIVE[sc.kind]; body.innerHTML = `<div class="tu-text">${n.text()}</div><div class="tu-art">${n.art()}</div>${n.pill ? `<div class="tu-pill">${n.pill}</div>` : ''}`; }
     }
     root.querySelector('[data-nav="prev"]').hidden = step === 0;
@@ -466,5 +488,5 @@ window.Tutorial = (() => {
     return false;
   }
 
-  return { init, open, close, isOpen, maybeOpen, back };
+  return { init, open, close, isOpen, maybeOpen, back, interview };
 })();

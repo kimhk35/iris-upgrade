@@ -149,6 +149,16 @@ try {
     await p.evaluate(() => { Settings.hide(); Settings.setSharePeople(1); });
   }
 
+  // 10) 폴더 만들기 인터뷰 — 설정 단추 → 입력창에 인터뷰 요청문(보내기는 사용자)
+  if (!only.length || only.includes('interview')) {
+    await p.evaluate(() => Settings.show('about')); await sleep(600);
+    await p.locator('#st-interview').click(); await sleep(1500);
+    const v = await p.locator('#composer-text').inputValue();
+    console.log('interview 입력창', v.startsWith('나의 삶을 인터뷰') ? '채워짐' : '비어 있음', v.length, '자');
+    await shot(p, 'interview', []);
+    await p.locator('#composer-text').fill('');
+  }
+
   // 8) 확인용: IRIS 안 사용 설명서 서랍 · 정보 창(Developer)
   if (!only.length || only.includes('drawer') || only.includes('about')) {
     await p.evaluate(() => Settings.show('about')); await sleep(600);

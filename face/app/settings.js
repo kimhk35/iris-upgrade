@@ -542,6 +542,7 @@ window.Settings = (() => {
     $('#st-auth')?.addEventListener('click', (e) => { const b = e.target.closest('button[data-renew]'); if (b) renewAuth(b.closest('[data-auth]').dataset.auth); });
     loadAuth();
     $('#st-tutorial')?.addEventListener('click', () => { hide(); window.Tutorial?.open({ replay: true }); }); // v2.90
+    $('#st-interview')?.addEventListener('click', () => { hide(); window.Tutorial?.interview(); }); // P18 폴더 만들기 인터뷰(세팅가이드 2부)
     $('#st-manual')?.addEventListener('click', () => { hide(); document.dispatchEvent(new CustomEvent('iris:manual')); }); // P18 사용 설명서 → main.js 서랍
     $('#maker').onclick = about;
     applyMaker();
