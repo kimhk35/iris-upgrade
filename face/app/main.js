@@ -200,6 +200,7 @@
     sessions.splice(to, 0, rec); saveOrder(); render();
   }
   function render() {
+    try { IvHint.sync(); } catch {}   // 인터뷰 안내 띠(P18) — 아래에서 정의, 첫 그리기 땐 아직 없을 수 있음
     sortSessions();
     const list = $('#session-list');
     if (!renaming) { list.innerHTML = ''; // 이름을 고치는 동안은 목록을 다시 그리지 않는다(상태 방송마다 입력칸이 날아가지 않게, v2.85)
@@ -695,6 +696,10 @@
       if (n >= 2 && st.s) { txt = `${n}명 · 내 몫 ${P(st.s.mineWeek)} / ${P(st.quota)}`; el.classList.toggle('over', st.over); el.classList.toggle('near', !st.over && st.near); }
       else txt = n >= 2 ? `${n}명 · 측정 준비 중` : '혼자 사용';
       el.innerHTML = `${ICON}<b>계정 공유</b><span>${esc(txt)}</span>`;
+      // 입력창 위 배지(같은 값을 짧게): 나눠 쓰면 「내 몫 18% / 25%」, 혼자면 「오늘 N번」
+      const dk = $('#dock-usage');
+      if (dk) { dk.hidden = false; dk.className = `dock-usage${el.classList.contains('over') ? ' over' : el.classList.contains('near') ? ' near' : ''}`;
+        dk.innerHTML = `${ICON}<span>${esc(n >= 2 ? (st.s ? `내 몫 ${P(st.s.mineWeek)} / ${P(st.quota)}` : `${n}명 · 측정 준비 중`) : `오늘 ${last.today.requests}번`)}</span>`; }
       if (TeamPop.isOpen()) TeamPop.render();
     }
     async function refresh(force) {
@@ -733,7 +738,9 @@
         <div class="tp-today">이 PC 오늘 요청 ${last?.today?.requests ?? 0}번 · ${LocalUse.fmt(last?.today?.tokens || 0)} 토큰 · 이번 주 ${last?.week?.requests ?? 0}번</div>
         <div class="tp-foot"><button type="button" class="text-btn outline" data-tp="more">자세히(설정)</button></div>`;
     }
-    function open() {
+    let anchor = null;
+    function open(at) {
+      anchor = at || $('#local-usage');
       if (!box) {
         box = document.createElement('div'); box.id = 'team-pop'; box.className = 'team-pop'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', '계정 공유');
         document.body.appendChild(box);
@@ -744,15 +751,30 @@
         });
       }
       render(); box.hidden = false;
-      const r = $('#local-usage').getBoundingClientRect();
-      box.style.top = `${Math.round(r.bottom + 8)}px`;
+      const r = anchor.getBoundingClientRect(), up = r.bottom + box.offsetHeight + 16 > window.innerHeight; // 입력창 쪽 배지면 위로 연다
+      box.style.top = `${Math.round(up ? r.top - box.offsetHeight - 8 : r.bottom + 8)}px`;
       box.style.left = `${Math.round(Math.max(12, Math.min(window.innerWidth - box.offsetWidth - 12, r.left + r.width / 2 - box.offsetWidth / 2)))}px`;
-      $('#local-usage').setAttribute('aria-expanded', 'true'); Tip.hide();
+      anchor.setAttribute('aria-expanded', 'true'); Tip.hide();
     }
-    function close() { if (!isOpen()) return false; box.hidden = true; $('#local-usage')?.setAttribute('aria-expanded', 'false'); return true; }
-    $('#local-usage')?.addEventListener('click', () => (isOpen() ? close() : open()));
-    document.addEventListener('pointerdown', (e) => { if (isOpen() && !e.target.closest('#team-pop, #local-usage')) close(); });
+    function close() { if (!isOpen()) return false; box.hidden = true; anchor?.setAttribute('aria-expanded', 'false'); return true; }
+    for (const id of ['#local-usage', '#dock-usage']) $(id)?.addEventListener('click', (e) => (isOpen() && anchor === e.currentTarget ? close() : open(e.currentTarget)));
+    document.addEventListener('pointerdown', (e) => { if (isOpen() && !e.target.closest('#team-pop, #local-usage, #dock-usage')) close(); });
     return { open, close, isOpen, render };
+  })();
+
+  // 폴더 만들기 인터뷰 안내 띠(P18 2026-11-20 「스킵해도 나중에 다시」): 내 작업 폴더(R)가 없고 첫 화면일 때만. × = 다시 안 뜸.
+  const IvHint = (() => {
+    const KEY = 'iris.ivHint.off'; let hasRoles = true;
+    const off = () => { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } };
+    function sync() { const el = $('#iv-hint'); if (el) el.hidden = hasRoles || off() || !!current || Tutorial.isOpen(); }
+    async function check() { try { const r = await (await fetch('/api/tutorial/existing')).json(); hasRoles = !!r?.roles?.length; } catch { hasRoles = true; } sync(); }
+    $('#iv-hint')?.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-iv]'); if (!b) return;
+      if (b.dataset.iv === 'go') return Tutorial.interview();
+      try { localStorage.setItem(KEY, '1'); } catch {} Tip.hide(); sync();
+    });
+    check(); setInterval(check, 120000);
+    return { sync, check };
   })();
 
   // 말풍선 — data-tip 이 있는 것에 마우스를 올리거나(바로) 키보드로 고르면 뜬다. 창 가장자리에서 넘치지 않게 위·아래를 고른다.

@@ -146,7 +146,25 @@ try {
     await p.evaluate(() => document.querySelector('.st-team')?.scrollIntoView({ block: 'center' })); await sleep(300);
     await p.locator('.st-team .tip-i').first().hover(); await sleep(400);
     await shot(p, 'share-set', []);
-    await p.evaluate(() => { Settings.hide(); Settings.setSharePeople(1); });
+    await p.evaluate(() => Settings.hide()); await sleep(400);
+    await p.locator('#dock-usage').click(); await sleep(600);
+    await shot(p, 'share-dock', []);
+    await p.keyboard.press('Escape'); await sleep(200);
+    await p.evaluate(() => { Settings.setSharePeople(1); });
+  }
+
+  // 11) 인터뷰 안내 띠 — 내 작업 폴더가 없을 때 첫 화면(가짜로 「폴더 없음」), × 누르면 사라지고 다시 안 뜸
+  if (only.includes('ivhint')) {
+    const q = await newPage({ sessions: [] });
+    await q.route('**/api/tutorial/existing', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ roles: [] }) }));
+    await q.evaluate(() => { try { localStorage.removeItem('iris.ivHint.off'); } catch {} }); await q.reload(); await sleep(2500);
+    const before = await q.locator('#iv-hint').isVisible();
+    await shot(q, 'ivhint', []);
+    await q.locator('#iv-hint [data-iv="x"]').click(); await sleep(300);
+    const after = await q.locator('#iv-hint').isVisible();
+    await q.reload(); await sleep(2500);
+    console.log('ivhint 처음', before, '× 뒤', after, '다시 켠 뒤', await q.locator('#iv-hint').isVisible());
+    await q.close();
   }
 
   // 10) 폴더 만들기 인터뷰 — 설정 단추 → 입력창에 인터뷰 요청문(보내기는 사용자)

@@ -315,7 +315,7 @@ window.Tutorial = (() => {
       const b = e.target.closest('button'), card = e.target.closest('[data-role]');
       if (b?.dataset.way) { // P18 갈림길: 인터뷰 · 직접 · 나중에
         if (b.dataset.way === 'interview') return interview();
-        buildWay = b.dataset.way; if (buildWay === 'later') return go(step + 1); repaint(); return;
+        buildWay = b.dataset.way; if (buildWay === 'later') { try { Notify.push({ title: '폴더는 언제든 인터뷰로 만들 수 있어요', sub: '첫 화면의 안내 띠 · 설정 → 업데이트·정보 → 「인터뷰로 폴더 만들기」', status: 'idle', force: true }); } catch {} return go(step + 1); } repaint(); return;
       }
       if (b?.dataset.gender) { await Persona.setGender(b.dataset.gender); repaint(); return; }
       if (b?.dataset.rx != null) { const i = +b.dataset.rx; if (roles[i]?.existing) return; undo = { role: roles[i], at: i }; roles.splice(i, 1); touched(); repaint(); schedulePlan(); return; }
