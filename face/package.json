@@ -65,6 +65,7 @@
     "verify:share": "node scripts/check-share.mjs",
     "verify:math": "node scripts/check-math.mjs",
     "verify:netenv": "node scripts/check-netenv.mjs",
+    "verify:limits": "node scripts/check-limits.mjs",
     "verify:codexpair": "node scripts/check-codexpair.mjs",
     "verify:utf8tail": "node scripts/check-utf8tail.mjs",
     "verify:quiet": "node scripts/check-quiet.mjs",

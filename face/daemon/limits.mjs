@@ -14,20 +14,28 @@ export async function readLimits({ maxAgeMs = 30000 } = {}) {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 1500);
     const r = await fetch(URL_, { signal: ctl.signal }); clearTimeout(t);
     if (r.ok) {
-      const d = await r.json();
-      const cur = d.currentAccounts || {};
-      const acc = (name) => (d.accounts || []).find(a => a.name === name) || null;
-      // 「다음에 쓸 계정」(왕관)이 비어 있으면(예: 코덱스 요청이 아직 없을 때) 그 공급자의 켜진 첫 계정으로 — 배터리가 「—」로 비던 것(P18 2026-11-19)
-      const first = (prov) => (d.accounts || []).find(x => x.provider === prov && !x.disabled) || null;
-      const a = acc(cur.anthropic) || first('anthropic'), c = acc(cur.codex) || first('codex');
-      const pick = (x) => x ? { account: x.name, h5: num(x.quota?.unified5h), d7: num(x.quota?.unified7d), d7Fable: num(x.quota?.unified7dFable), d7Sonnet: num(x.quota?.unified7dSonnet), d7Reset: x.quota?.unified7dReset || null, plan: x.quota?.planType || null } : null;
-      value = { anthropic: pick(a), codex: pick(c), at: new Date().toISOString() };
+      value = limitsFromStatus(await r.json());
     }
   } catch { value = null; }
   cache = { at: Date.now(), value };
   return value;
 }
 const num = (v) => (typeof v === 'number' ? v : null);
+const providerOf = (a) => a?.provider || 'anthropic';
+
+/** 중계기 /api/status → 머리줄 배터리 값. 시험 = scripts/check-limits.mjs */
+export function limitsFromStatus(d, now = new Date()) {
+  const cur = d?.currentAccounts || {};
+  const list = d?.accounts || [];
+  // 왕관 이름은 **그 공급자의 계정일 때만** 받는다(P18 2026-11-21 신고 "코덱스 주간이 머리줄 0% · 대시보드 미수신"):
+  // 중계기의 공급자별 순번이 계정 추가 직후 어긋나 currentAccounts.codex 에 클로드 계정 이름이 오면, 코덱스 칸에 클로드 값이 그려졌다.
+  const acc = (name, prov) => list.find(a => a.name === name && providerOf(a) === prov) || null;
+  // 「다음에 쓸 계정」(왕관)이 비어 있으면(예: 코덱스 요청이 아직 없을 때) 그 공급자의 켜진 첫 계정으로 — 배터리가 「—」로 비던 것(P18 2026-11-19)
+  const first = (prov) => list.find(x => providerOf(x) === prov && !x.disabled) || null;
+  const a = acc(cur.anthropic, 'anthropic') || first('anthropic'), c = acc(cur.codex, 'codex') || first('codex');
+  const pick = (x) => x ? { account: x.name, h5: num(x.quota?.unified5h), d7: num(x.quota?.unified7d), d7Fable: num(x.quota?.unified7dFable), d7Sonnet: num(x.quota?.unified7dSonnet), d7Reset: x.quota?.unified7dReset || null, plan: x.quota?.planType || null } : null;
+  return { anthropic: pick(a), codex: pick(c), at: now.toISOString() };
+}
 
 /**
  * 한도에 따라 조합을 한 단계 내리거나 코덱스로 기울인다. 규칙(조합-규칙표 서두):
