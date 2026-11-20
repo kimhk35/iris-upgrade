@@ -9,6 +9,11 @@ export const OFFICIAL_PUBLIC_KEYS = [
 MCowBQYDK2VwAyEADdA2dLZYGS1xtopCA8SLwXkslakn8pTFc8qjkv+auVw=
 -----END PUBLIC KEY-----
 ` },
+  // P18 고도화판 릴리스 서명(2026-11-20) — 개인 열쇠 = 운영자 ~/.claude/secrets/iris-mckay-signing-2026-11.key, 서명 = scripts/sign-release.mjs
+  { id: 'mckay-2026-11', pem: `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAHWnDkOxCPK1HTCHRhPUIXekf/uL9VSo38w2fqCQ6FZw=
+-----END PUBLIC KEY-----
+` },
 ];
 /** 유출·폐기된 열쇠 id. 이 열쇠로 서명된 모듈은 "폐기된 열쇠 ⚠"로 비공식 취급. */
 export const REVOKED_KEY_IDS = [];

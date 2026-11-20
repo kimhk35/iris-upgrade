@@ -25,8 +25,8 @@ export const MESSENGER_MODULE = 'messenger';
 const GH = (repo) => `https://api.github.com/repos/${repo}/releases/latest`;
 /** 고도화판 자체 배포(P18, 2026-11-20 사용자 결정 — 판 2.1.0부터): 구조판 = 내 저장소 릴리스, IRIS 창 단독 판은 내지 않는다(구조판에 들어 있음).
  *  원작 미러(latest.json)로는 넘어가지 않는다(noMirror) — 넘어가면 원작 판이 고도화판을 덮어쓴다.
- *  자체 서명 열쇠가 생기기 전(signed=false)에는 원작 공식 열쇠로 내 판을 검증할 수 없으므로 구조판은 자동 적용하지 않고 홈페이지 「새로 설치」 안내만 한다. */
-export const SELF_DIST = { repo: 'kimhk35/iris-upgrade', home: 'https://iris.mathmckay.kr', signed: false };
+ *  signed=false 이면 구조판은 자동 적용하지 않고 홈페이지 「새로 설치」 안내만 한다(2.1.0). 2.1.1부터 signed=true — 릴리스 .sha256.sig(sign-release.mjs)를 검증해 「업데이트」 단추로 적용. */
+export const SELF_DIST = { repo: 'kimhk35/iris-upgrade', home: 'https://iris.mathmckay.kr', signed: true };   // 2.1.1부터 자체 서명(modsign.mjs mckay-2026-11)
 /** 부품별 릴리스 원천(설계 1절). messenger 는 카탈로그(daemon/catalog.json)의 규칙을 그대로 쓴다. null = 확인하지 않음. */
 export const PART_SOURCE = {
   face: null,

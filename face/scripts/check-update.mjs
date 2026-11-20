@@ -34,7 +34,7 @@ const OTHER = generateKeyPair();
   ok(/^\d{8}-\d{6}$/.test(stamp(Date.now())), '판: 내려받기 폴더 시각 표기 YYYYMMDD-HHMMSS');
   ok(PART_NAMES.join(',') === 'face,messenger,package' && APPLY_ORDER.join(',') === 'package,face,messenger', '판: 표시 차례와 적용 차례(구조판 → 창 → 메신저)');
   ok(PART_SOURCE.face === null && PART_SOURCE.package.api === `https://api.github.com/repos/${SELF_DIST.repo}/releases/latest` && PART_SOURCE.package.noMirror === true && SELF_DIST.repo === 'kimhk35/iris-upgrade', '판(P18): 구조판 = 내 저장소 · IRIS 창 단독 확인 없음 · 원작 미러로 안 넘어감');
-  ok(REINSTALL_URL === 'https://iris.mathmckay.kr' && SELF_DIST.signed === false, '판(P18): 새로 설치 안내 = 고도화판 홈페이지 · 서명 열쇠 전');
+  ok(REINSTALL_URL === 'https://iris.mathmckay.kr' && SELF_DIST.signed === true, '판(P18): 새로 설치 안내 = 고도화판 홈페이지 · 2.1.1부터 자체 서명');
 }
 
 // ---- 2) 가짜 영혼 폴더(픽스처) ----
@@ -495,7 +495,13 @@ let planFile = null;
   ok(info.latest.face === null && info.latest.package?.version === '9.9.0', `P18: IRIS 창 단독 확인 없음 · 구조판 새 판은 내 저장소에서 (${info.latest.package?.version})`);
   // 메신저는 원작 서명 릴리스를 그대로 쓴다(카탈로그) — 구조판·IRIS 창의 원작 저장소만 묻지 않으면 된다
   ok(!asked.some(u => /d09-p03-iris-installer|d06-p02-iris-face/.test(u)), `P18: 구조판·IRIS 창의 원작 저장소를 묻지 않음 (${asked.length}번)`);
-  ok(info.reinstall?.note === SELF_REINSTALL_NOTE && info.reinstall.url === 'https://iris.mathmckay.kr' && !info.applyParts.includes('package'), 'P18: 서명 전 새 판 = 자동 적용 없이 홈페이지 새로 설치 안내');
+  // 가짜 영수증이 1.x(schema 1)라 원작의 1.x→2.x 새로 설치 규칙은 따로 걸린다 — 여기서는 자체 서명 규칙만 본다
+  ok(me.selfReinstall === false && info.reinstall?.note !== SELF_REINSTALL_NOTE, 'P18: 자체 서명(기본) = 서명 없음 때문의 새로 설치 안내는 없음(「업데이트」로 적용)');
+  const unsigned = new Updater({ root, faceRoot: faceHome, stateDir: fs.mkdtempSync(path.join(tmp, 'st-self3-')), modulesDir, keys: KEYS, signed: false, now: () => nowMs, log: () => {}, broadcast: () => {}, fetchImpl: selfFetch });
+  const iu = await unsigned.check();
+  ok(iu.reinstall?.note === SELF_REINSTALL_NOTE && iu.reinstall.url === 'https://iris.mathmckay.kr' && !iu.applyParts.includes('package'), 'P18: 서명 없는 판(2.1.0 처럼) = 자동 적용 없이 홈페이지 새로 설치 안내');
+  const mk = (await import('../daemon/modsign.mjs')).OFFICIAL_PUBLIC_KEYS.find((k) => k.id === 'mckay-2026-11');
+  ok(!!mk && /BEGIN PUBLIC KEY/.test(mk.pem) && !/PRIVATE/.test(JSON.stringify((await import('../daemon/modsign.mjs')).OFFICIAL_PUBLIC_KEYS)), 'P18: 고도화판 공개 열쇠가 공식 목록에 있음(개인 열쇠는 없음)');
   const down = new Updater({ root, faceRoot: faceHome, stateDir: fs.mkdtempSync(path.join(tmp, 'st-self2-')), modulesDir, keys: KEYS, now: () => nowMs, log: () => {}, broadcast: () => {}, fetchImpl: async (url) => { asked.push(String(url)); throw new Error('net down'); } });
   const before = asked.length; const i2 = await down.check();
   ok(/패키지/.test(i2.checkError || '') && !i2.latest.package && !i2.reinstall, `P18: GitHub 이 안 될 때 구조판은 원작 미러 latest.json 으로 넘어가지 않고 확인 실패로 남음 (${i2.checkError})`);
