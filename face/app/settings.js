@@ -455,7 +455,8 @@ window.Settings = (() => {
 
   // ---- 정보(만든 사람) 대화상자 — 값은 전부 데몬 /api/health 의 about(원천 = package.json). 데몬이 아직 없으면 화면 쪽 기본값. ----
   const ABOUT_DEF = { name: 'IRIS', version: '—', author: 'Sejun Ham (함세준)', homepage: 'https://feynman520.github.io/card/#home', license: 'MIT', since: '2026-09-08', motto: '해결은 에이전트가, 정의는 우리가.' };
-  // 고도화판(P18, 2026-11-20 사용자 요청): 원본 주소 + Developer McKay + 약력 — 원작자 표시(만든 사람)는 그대로 둔다
+  // 고도화판(P18, 2026-11-20 사용자 요청): 원본 주소 + Developer McKay + 약력. 만든 사람 = 「Special thanks to HSJ」(한글 이름 표시는 빼달라는 사용자 요청) —
+  // 허가서 줄의 「© 2026 Sejun Ham」(MIT 저작권 표시)은 지우지 않는다.
   const DEV = { name: 'McKay', home: 'https://iris.mathmckay.kr', origin: 'https://iris-workspace.com/', bio: ['교육학 박사', '아주대학교 교육대학원 겸임교수', '경기도교육청 수학교사'] };
   function about() {
     const a = { ...ABOUT_DEF, ...(health?.about || {}) };
@@ -464,10 +465,10 @@ window.Settings = (() => {
       <div class="about-head"><span class="about-mark" aria-hidden="true">${$('#mark-slot').innerHTML}</span><span class="about-name">${esc(BRAND.name)}</span></div>
       <p class="about-motto">“${esc(a.motto)}”</p>
       <dl class="about-grid">
-        <dt>만든 사람</dt><dd>${esc(a.author)}</dd>
+        <dt>만든 사람</dt><dd>Special thanks to <b>HSJ</b></dd>
         <dt>처음 만든 날</dt><dd>${esc(a.since)}</dd>
         <dt>명함</dt><dd><a href="${esc(a.homepage)}" target="_blank" rel="noreferrer">${esc(card)}</a></dd>
-        <dt>원본</dt><dd><a href="${esc(DEV.origin)}" target="_blank" rel="noreferrer">${esc(DEV.origin.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a> <span class="about-dim">· 만든 사람 HSJ</span></dd>
+        <dt>원본</dt><dd><a href="${esc(DEV.origin)}" target="_blank" rel="noreferrer">${esc(DEV.origin.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a> <span class="about-dim">· HSJ</span></dd>
         <dt>Developer</dt><dd><b>${esc(DEV.name)}</b> <span class="about-dim">· 고도화판</span> <a href="${esc(DEV.home)}" target="_blank" rel="noreferrer">${esc(DEV.home.replace(/^https?:\/\//, ''))}</a></dd>
         ${DEV.bio.length ? `<dt>약력</dt><dd>${DEV.bio.map(l => esc(l)).join('<br>')}</dd>` : ''}
         <dt>버전</dt><dd>${esc(a.version)}${health?.pid ? ` <span class="about-dim">· 데몬 pid ${esc(health.pid)}</span>` : ''}</dd>
@@ -476,8 +477,7 @@ window.Settings = (() => {
       </dl></div>`;
     return Dialog.info({ title: '정보', html, wide: true });
   }
-  const koName = (s) => (String(s || '').match(/\(([^)]+)\)\s*$/) || [])[1] || s; // 'Sejun Ham (함세준)' → '함세준'
-  function applyMaker() { $('#maker').textContent = `v${health?.version || '—'} · ${koName(health?.about?.author || ABOUT_DEF.author)} · ${DEV.name}`; }
+  function applyMaker() { $('#maker').textContent = `v${health?.version || '—'} · HSJ · ${DEV.name}`; }
   /** p = 열 묶음(없으면 마지막으로 본 묶음). 예: 헤더 모듈 버튼이 멈춘 모듈을 보여 줄 때 show('mods'). */
   function show(p) { if (!open) opts.onShow?.(); open = true; $('#settings').hidden = false; $('#btn-settings').classList.add('active'); if (PANES.includes(p)) pane = p; showPane(pane); renderPanel(); }
   function hide() { open = false; $('#settings').hidden = true; $('#btn-settings').classList.remove('active'); destroyPreviews(); }

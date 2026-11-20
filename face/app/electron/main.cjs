@@ -15,7 +15,7 @@ const PKG = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
 const PORT = Number((process.argv.find((a) => a.startsWith('--port=')) || '').slice(7)) || Number(process.env.IRIS_FACE_PORT) || 3458;
 const URL_ = `http://127.0.0.1:${PORT}/`;
 const STATE = path.join(ROOT, 'state');
-const TIP = `IRIS · by ${String(PKG.author || '').replace(/\s*\(.*\)$/, '') || 'Sejun Ham'}`; // 트레이 툴팁의 각인(원천 = package.json author)
+const TIP = 'IRIS · Special thanks to HSJ · McKay'; // 트레이 툴팁의 각인(P18 2026-11-20 사용자 요청 — 한글 이름 표시 대신 HSJ)
 // IRIS 아이콘(2026-09-13, v2.57.1): app/iris.ico 한 파일이 창·작업표시줄·트레이·설치기 바탕화면 바로가기의 공통 원천.
 // (별의 구 아이콘 — 이 PC의 바탕화면 바로가기가 쓰던 그 파일.) 없으면 예전처럼 그려 쓰는 마름모로 되돌아간다.
 const ICON_PATH = path.join(ROOT, 'app', 'iris.ico');
