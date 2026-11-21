@@ -41,6 +41,7 @@ import {
 } from './lib/receipt.mjs';
 import { createSetupRunner } from './lib/adapters/setup-runner.mjs';
 import { createOnlineRunner } from './lib/adapters/online-runner.mjs';
+import { installGemini, GeminiLogin } from './lib/gemini.mjs';
 // Update mode only (POST /api/auto). The v1 `install()` is deliberately NOT
 // imported any more: an update runs the SAME v2 engine the wizard runs, with
 // the stages an update can change reset to `pending` first (lib/update-plan).
@@ -357,6 +358,8 @@ export function startServer({
   precheckFn = defaultPrecheck,
   setupRunner = createSetupRunner(),
   onlineRunner = createOnlineRunner(),
+  // P18(2026-11-21): 세 번째 AI = Gemini(agy). 고른 설치만 받고 로그인한다 — 시험은 가짜를 넣는다.
+  geminiRunner = { install: installGemini, createLogin: (o) => new GeminiLogin(o) },
   readReceiptFn = readReceipt,
   writeReceiptFn = writeReceipt,
   runFn = defaultRun,
@@ -687,12 +690,16 @@ export function startServer({
     const subs = Array.isArray(body?.subscriptions)
       ? [...new Set(body.subscriptions.filter((s) => s === 'claude' || s === 'chatgpt'))]
       : [];
+    // P18(2026-11-21): Gemini 는 subscriptions 와 따로 든다 — 로그인·중계기 흐름(Claude·ChatGPT)은 그대로 두고 덧붙는 선택.
+    const gemini = Array.isArray(body?.subscriptions) && body.subscriptions.includes('gemini');
     if (subs.length === 0) {
-      sendJson(res, 200, { ok: false, reason: 'empty', message: '구독을 적어도 하나는 골라 주세요.' });
+      sendJson(res, 200, { ok: false, reason: 'empty', message: gemini
+        ? 'Gemini 만으로는 설치할 수 없습니다. Claude 또는 ChatGPT 구독을 하나 함께 골라 주세요.'
+        : '구독을 적어도 하나는 골라 주세요.' });
       return;
     }
     const leadAgent = subs.includes('claude') ? 'claude' : 'chatgpt';
-    state.choice = { subscriptions: subs, leadAgent };
+    state.choice = { subscriptions: subs, leadAgent, ...(gemini ? { gemini: true } : {}) };
     // 2.0.35(2026-09-21 사용자 결정): 설치기는 폴더 구조를 묻지 않는다 — ④ 화면을 건너뛰고 인터뷰 결정
     // (`interview:true`, 만들 폴더 0개)을 스스로 적는다. R/D/P 는 설치 뒤 첫 세션이 인터뷰로 만든다.
     // `POST /api/structure` 는 호환(시험·연습 루트)용으로 남아 이 결정을 덮어쓸 수 있다.
@@ -1024,6 +1031,55 @@ export function startServer({
   // --- ⑦ 온라인 묶음 -------------------------------------------------------
   let onlineRunning = false;
 
+  // ⑦-G Gemini(P18 2026-11-21, 시안 = P18\확인용\Gemini-설치연결-시안.html): 고른 설치만. Claude 내려받기와
+  // 나란히 돌고(기다리게 하지 않음), 실패해도 설치를 막지 않는다 — 화면은 「다시」·「건너뛰고 끝내기」를 준다.
+  // state.online.gemini = { install:{state:'downloading'|'done'|'failed', done,total, source, version, reason, message},
+  //                         login:{state:'idle'|'waiting'|'done'|'failed'|'skipped', reason, startedAt} }
+  let geminiRunning = false;
+  let geminiLogin = null;
+  const geminiLoginFor = () => {
+    if (!geminiLogin) geminiLogin = geminiRunner.createLogin({ root: state.soul?.root, log: (m) => log(m) });
+    return geminiLogin;
+  };
+  function geminiState() {
+    state.online.gemini = state.online.gemini ?? { install: { state: 'pending' }, login: { state: 'idle', reason: null, startedAt: null } };
+    return state.online.gemini;
+  }
+  async function runGemini() {
+    if (geminiRunning || !state.choice?.gemini) return;
+    const g = geminiState();
+    if (g.install.state === 'done') return;
+    geminiRunning = true;
+    const root = state.soul?.root;
+    let lastSave = 0;
+    try {
+      g.install = { state: 'downloading', done: 0, total: null };
+      save();
+      const got = await geminiRunner.install({
+        root, lock: readLock(state.zipRoot), log,
+        onProgress: ({ done, total }) => {
+          g.install = { ...g.install, done: done ?? 0, total: total ?? g.install.total ?? null };
+          if (Date.now() - lastSave > 1000) { lastSave = Date.now(); save(); }
+        },
+      });
+      g.install = got?.ok
+        ? { state: 'done', source: got.source ?? null, version: got.version ?? null }
+        : { state: 'failed', reason: got?.reason ?? null, message: typeof got?.message === 'string' ? got.message.slice(0, 300) : null };
+      save();
+      log(`online gemini install ${g.install.state}${got?.reason ? ` (${got.reason})` : ''}`);
+      if (got?.ok && g.login.state !== 'done') {
+        const info = await geminiLoginFor().probe(); // 원래 agy 로 로그인해 둔 PC 는 창 없이 여기서 끝
+        if (info.state === 'done') g.login = { ...g.login, ...info };
+      }
+    } catch (err) {
+      g.install = { state: 'failed', reason: 'threw', message: null };
+      log(`online gemini threw: ${String(err?.stack ?? err)}`);
+    } finally {
+      geminiRunning = false;
+      save();
+    }
+  }
+
   async function runOnlineStart() {
     const root = state.soul?.root;
     const subs = state.choice?.subscriptions ?? [];
@@ -1039,6 +1095,8 @@ export function startServer({
         log(`online net blocked: ${(net?.blocked ?? []).join(',') || net?.code || 'unknown'}`);
         return;
       }
+      runGemini(); // 기다리지 않는다 — Claude Code 내려받기와 나란히
+
       // 2.0.38 (2026-09-23 사용자 결정): 로그인 상자를 내려받기 전에 먼저 만든다 — Claude Code 를
       // 늘 받게 되면서, 코덱스만 고른 사람이 받는 몇 분 동안 로그인을 못 하고 기다리지 않게.
       // (클로드 상자는 화면이 내려받기 동안 스스로 잠근다.)
@@ -1142,6 +1200,16 @@ export function startServer({
         }
       } catch { /* a polling route must never throw */ }
     }
+    // Gemini 로그인은 뒤에서 확인한다(5초에 한 번 `agy models`) — 이 응답은 붙잡지 않는다.
+    if (state.choice?.gemini && state.online.gemini) {
+      const g = state.online.gemini;
+      // 설치기를 다시 연 경우: 받다 멈춘 것은 이어 받고, 띄워 둔 로그인 창은 이 서버 것이 아니므로 「로그인」부터 다시
+      if (g.install?.state === 'downloading' && !geminiRunning) runGemini();
+      if (g.login?.state === 'waiting' && !geminiLogin) g.login = { state: 'idle', reason: null, startedAt: null };
+      if (g.login?.state === 'waiting' && geminiLogin) {
+        try { g.login = { ...g.login, ...geminiLogin.status() }; } catch { /* 폴링은 던지지 않는다 */ }
+      }
+    }
     const allLoggedIn = subs.length > 0 && subs.every((p) => state.online.logins[p]?.state === 'done');
     if (allLoggedIn && state.online.stage === 'login') state.online.stage = 'relay';
     // 단계가 바뀐 시각 — 화면이 "n분째"를 그려 멈춤/진행을 가르게(2026-09-17 사용자 요청).
@@ -1150,7 +1218,7 @@ export function startServer({
       state.online.stageAt = Date.now();
     }
     save();
-    sendJson(res, 200, { ok: true, step: state.step, ...state.online, running: onlineRunning, now: Date.now() });
+    sendJson(res, 200, { ok: true, step: state.step, ...state.online, geminiChosen: !!state.choice?.gemini, running: onlineRunning, now: Date.now() });
   });
 
   async function doLogin(body, res, { retry }) {
@@ -1190,6 +1258,34 @@ export function startServer({
     });
   }
 
+  // ⑦-G Gemini: 로그인 창 띄우기(다시 누르면 앞 창을 닫고 새로) · 건너뛰기 · 프로그램 다시 받기
+  routes.set('POST /api/online/gemini/login', withBody(async (body, req, res) => {
+    if (!requireLocated(res)) return;
+    if (!state.choice?.gemini) { sendJson(res, 200, { ok: false, reason: 'not-chosen', message: 'Gemini 를 고르지 않은 설치입니다.' }); return; }
+    const g = geminiState();
+    if (g.install.state !== 'done') { sendJson(res, 200, { ok: false, reason: 'not-installed', message: 'Gemini 프로그램을 아직 받는 중이거나 받지 못했습니다.' }); return; }
+    const info = await geminiLoginFor().start();
+    g.login = { ...g.login, ...info };
+    save();
+    log(`online gemini login -> ${info.state}${info.reason ? ` (${info.reason})` : ''}`);
+    sendJson(res, 200, { ok: info.state === 'waiting' || info.state === 'done', ...info });
+  }));
+  routes.set('POST /api/online/gemini/skip', withBody(async (body, req, res) => {
+    if (!requireLocated(res)) return;
+    const g = geminiState();
+    const info = geminiLogin ? await geminiLogin.skip() : { state: 'skipped', reason: null, startedAt: null };
+    if (g.login.state !== 'done') g.login = { ...g.login, ...info };
+    save();
+    log('online gemini skipped');
+    sendJson(res, 200, { ok: true, ...g.login });
+  }));
+  routes.set('POST /api/online/gemini/install', withBody(async (body, req, res) => {
+    if (!requireLocated(res)) return;
+    if (!state.choice?.gemini) { sendJson(res, 200, { ok: false, reason: 'not-chosen' }); return; }
+    sendJson(res, 202, { ok: true, running: true });
+    runGemini();
+  }));
+
   routes.set('POST /api/online/login', withBody(async (body, req, res) => doLogin(body, res, { retry: false })));
   routes.set('POST /api/online/login/retry', withBody(async (body, req, res) => doLogin(body, res, { retry: true })));
 
@@ -1209,7 +1305,12 @@ export function startServer({
     }
     const before = state.choice?.subscriptions ?? [];
     const leadAgent = subs.includes('claude') ? 'claude' : 'chatgpt';
-    state.choice = { subscriptions: subs, leadAgent };
+    // P18: Gemini 칸이 함께 오면 그 값으로, 안 오면(옛 화면) 지금 값 그대로
+    const gemini = body?.gemini === undefined ? !!state.choice?.gemini : body.gemini === true;
+    const geminiAdded = gemini && !state.choice?.gemini;
+    state.choice = { subscriptions: subs, leadAgent, ...(gemini ? { gemini: true } : {}) };
+    if (geminiAdded && state.online.net?.ok) runGemini();
+    if (!gemini && geminiLogin) geminiLogin.closeWindow().catch(() => {});
     const logins = state.online.logins ?? (state.online.logins = {});
     for (const p of ['claude', 'chatgpt']) {
       const cur = logins[p];

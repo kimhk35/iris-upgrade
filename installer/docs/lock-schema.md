@@ -27,7 +27,7 @@
 
 | kind | 필수 | 선택 | 잠금 근거 |
 |---|---|---|---|
-| `url` | `version` · `url` · `sha256`(64자) · `sha256Source` | `fallback`(같은 모양의 예비 판) | 지문 |
+| `url` | `version` · `url` · `sha256`(64자) · `sha256Source` | `fallback`(같은 모양의 예비 판) · `sha512`(공급처가 SHA-512 로만 공개할 때 대조용) · `binName` · `installTo`(설치 자리가 영혼 밖인 사용자 승인 예외 — 지금은 `gemini` 하나) | 지문 |
 | `npm-prefix` | `npm` · `version` · `integrity`(`sha512-…`) | `tarball` · `patches` · `entry` | 판 + integrity |
 | `claude-release` | `version` · `url` · `manifestUrl` · `sha256` · `sha256Source` · `fallback{kind,npm,version,integrity}` | `binName` | 공식 manifest의 `platforms.win32-x64.checksum` |
 | `git` | `repo` · `commit`(40자 16진) · `pinnedAt`(ISO 날짜) | `tag` · `version` · `subdir` · `include` · `requires` · `runtime` · `expectedSkillCount` | 커밋 |

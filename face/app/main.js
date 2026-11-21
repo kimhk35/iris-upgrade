@@ -79,7 +79,7 @@
   const AGENT_NAME = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini' };
   // v2.96.2(2026-10-27 사용자 결정, 옛 v2.76 한 줄 안내 대체): 입력창 위 긴 안내 글은 없앴다. 프로그램이 없거나 계정이 0개인
   // 에이전트 버튼은 **비활성**(누를 수 없음) + 마우스를 올리면 짧은 말풍선. 고른 쪽이 꺼지면 켜진 쪽으로 옮긴다. 둘 다 꺼지면 막지 않는다(할 수 있는 게 없어짐).
-  const OFF_TIP = { missing: '프로그램 없음 — IRIS 설치 파일을 다시 실행하면 받습니다', account: '계정 연결 안 됨 — 대시보드에서 계정을 추가하면 켜집니다', gemini: 'Antigravity CLI(agy) 없음 — PowerShell 에서 공식 설치 명령으로 설치하고 agy 로 구글 로그인하면 켜집니다' };
+  const OFF_TIP = { missing: '프로그램 없음 — IRIS 설치 파일을 다시 실행하면 받습니다', account: '계정 연결 안 됨 — 대시보드에서 계정을 추가하면 켜집니다', gemini: 'Gemini 프로그램(agy) 없음 — IRIS 설치 파일을 다시 열어 구독 고르기에서 「Google AI Pro(Gemini)」를 고르면 받고 구글 로그인까지 합니다' };
   function agentOff() {
     const off = {};
     for (const k of ACCT?.missing || []) if (AGENTS[k]) off[k] = 'missing';

@@ -285,6 +285,7 @@ body[data-step="done"] #card-done { border-color: rgba(111,211,154,.4); box-shad
       <p class="hint">가지고 계신 <b>유료 구독</b>을 모두 고르세요. 무료 계정으로는 비서가 일할 수 없습니다. 둘 다 고르면 Claude 쪽이 앞장서고, 그 뒤로는 둘 다 씁니다.</p>
       <label class="pick"><input type="checkbox" id="sub-claude" value="claude"><span><b>Claude 구독</b> — claude.ai 유료 요금제(예: Pro, Max)<span class="sub">비서가 Claude로 일합니다(도구 이름: Claude Code). 둘 다 있으면 이쪽이 앞장섭니다.</span></span></label>
       <label class="pick"><input type="checkbox" id="sub-chatgpt" value="chatgpt"><span><b>ChatGPT 구독</b> — chatgpt.com 유료 요금제(예: Plus, Pro)<span class="sub">비서가 ChatGPT로 일합니다(도구 이름: Codex).</span></span></label>
+      <label class="pick"><input type="checkbox" id="sub-gemini" value="gemini"><span><b>Google AI Pro 구독(Gemini)</b> — Google One AI 요금제<span class="sub">IRIS 창의 세 번째 단추 「Gemini」가 켜집니다(도구 이름: Antigravity CLI, 약 230MB 추가 내려받기). 이것만 골라서는 설치할 수 없고, Claude·ChatGPT 중 하나를 함께 골라야 합니다.</span></span></label>
       <div id="choice-note"></div>
       <div class="acts">
         <button class="ghost" id="btn-back-choice">이전</button>
@@ -375,10 +376,23 @@ body[data-step="done"] #card-done { border-color: rgba(111,211,154,.4); box-shad
         <span class="lc-label">이번 설치에서 쓸 구독</span>
         <label><input type="checkbox" id="chk-claude"> Claude</label>
         <label><input type="checkbox" id="chk-chatgpt"> ChatGPT</label>
+        <label><input type="checkbox" id="chk-gemini"> Gemini</label>
         <button class="ghost" id="btn-choice-apply">바꾼 대로 적용</button>
         <span class="lc-note" id="choice-note">한쪽 로그인이 잘 안 되면 체크를 풀고 적용하세요. 나중에 IRIS 안에서 다시 더할 수 있습니다.</span>
       </div>
       <div id="login-boxes"></div>
+      <!-- P18(2026-11-21): Gemini 로그인 — 고른 설치에서만 보인다(시안 = 확인용\Gemini-설치연결-시안.html) -->
+      <div class="login-box" id="lb-gemini" hidden>
+        <h3>Google 로그인 (Gemini)</h3>
+        <p class="sub" id="ltext-gemini"></p>
+        <div class="stage" id="lrow-gemini"></div>
+        <div class="acts">
+          <button class="go" id="btn-login-gemini">Google 로그인</button>
+          <button class="ghost" id="btn-reopen-gemini" hidden>다시 로그인</button>
+          <button class="ghost" id="btn-redl-gemini" hidden>Gemini 프로그램 다시 받기</button>
+          <button class="ghost" id="btn-skip-gemini" hidden>Gemini 는 건너뛰고 끝내기</button>
+        </div>
+      </div>
       <div id="online-note"></div>
       <div class="acts">
         <button class="go" id="btn-online-retry" hidden>다시 확인</button>
@@ -836,6 +850,11 @@ $('btn-choice').onclick = async () => {
   const subs = [];
   if ($('sub-claude').checked) subs.push('claude');
   if ($('sub-chatgpt').checked) subs.push('chatgpt');
+  if (subs.length === 0 && $('sub-gemini').checked) {
+    note('choice-note', 'Gemini 만으로는 설치할 수 없습니다. <b>Claude</b> 또는 <b>ChatGPT</b> 구독을 하나 함께 골라 주세요.', 'bad');
+    return;
+  }
+  if (subs.length && $('sub-gemini').checked) subs.push('gemini');
   if (subs.length === 0) {
     note('choice-note', '적어도 하나는 골라야 합니다. 유료 구독이 아직 없다면 <b>claude.ai</b> 또는 <b>chatgpt.com</b>에서 먼저 구독한 뒤 이 화면으로 돌아오세요. 이 설치 창은 그대로 두어도 됩니다.', 'bad');
     return;
@@ -1133,7 +1152,7 @@ $('btn-structure').onclick = async () => {
 // ---------------------------------------------------------------------------
 // ⑤ 요약 — 정한 것을 한 장으로. 여기서 「이전」을 누르면 ③④로 돌아가 고칠 수 있다.
 // ---------------------------------------------------------------------------
-const SUB_LABEL = { claude: 'Claude 구독(Claude Code)', chatgpt: 'ChatGPT 구독(Codex)' };
+const SUB_LABEL = { claude: 'Claude 구독(Claude Code)', chatgpt: 'ChatGPT 구독(Codex)', gemini: 'Google AI Pro 구독(Gemini)' };
 let decisions = null;
 
 /** 서버가 확정한 decisions를 나무 줄로. 없으면 화면이 들고 있는 항목으로 미리 그린다. */
@@ -1163,7 +1182,7 @@ function renderSummary(dec) {
   if (dec) decisions = dec;
   const subs = chosenSubs.length ? chosenSubs : ['claude'];
   const rows = [];
-  rows.push(['<span class="ok">✓</span>', '구독 — ' + subs.map((s) => esc(SUB_LABEL[s] || s)).join(' · '), subs.length > 1 ? '앞장서는 쪽: ' + esc(leadAgent === 'chatgpt' ? 'Codex' : 'Claude Code') : '']);
+  rows.push(['<span class="ok">✓</span>', '구독 — ' + subs.map((s) => esc(SUB_LABEL[s] || s)).join(' · '), subs.filter((s) => s !== 'gemini').length > 1 ? '앞장서는 쪽: ' + esc(leadAgent === 'chatgpt' ? 'Codex' : 'Claude Code') : '']);
   if (interviewMode) {
     rows.push(['<span class="ok">✓</span>', '작업 폴더 — 설치기는 <b>IRIS 폴더 하나</b>만 만듭니다. 역할·영역·프로젝트 폴더는 설치가 끝난 뒤 IRIS 창에서 비서가 <b>인터뷰</b>로 여쭤 보며 함께 만듭니다.', '']);
     $('summary-rows').innerHTML = rows.map(([st, mid, right]) =>
@@ -1466,6 +1485,18 @@ function renderOnlineRows(on) {
       ds.state === 'done' ? '받아서 등록했습니다' : ds.state === 'downloading' ? '받는 중' : '받지 못했습니다 — 나중에 다시 열면 이어서 받습니다',
     ]);
   }
+  // P18: Gemini(고른 설치만) — 실패는 막지 않으므로 'pending'(주의) 표시
+  const gi = o.geminiChosen && o.gemini ? (o.gemini.install || {}) : null;
+  if (gi) {
+    const mb = (n) => n ? Math.round(n / 1048576) + 'MB' : '';
+    rows.push([
+      gi.state === 'done' ? 'done' : gi.state === 'downloading' ? 'running' : 'pending',
+      'Gemini 프로그램 내려받기',
+      gi.state === 'done' ? (gi.source === 'existing' ? '이 컴퓨터에 이미 있습니다' : '받았습니다 — ' + (gi.version || '') + ' · 지문 확인 끝') :
+        gi.state === 'downloading' ? '구글 공식 저장소에서 받는 중' + (gi.done ? ' — ' + mb(gi.done) + (gi.total ? ' / ' + mb(gi.total) : '') : '') :
+          gi.state === 'failed' ? (gi.message || '받지 못했습니다') + ' — Claude·ChatGPT 는 그대로 진행합니다' : '차례를 기다립니다',
+    ]);
+  }
   const relay = o.relay || {};
   rows.push([
     relay.state === 'done' ? 'done' : relay.state === 'failed' ? 'failed' : relay.state === 'running' ? 'running' : 'pending',
@@ -1508,6 +1539,7 @@ function renderOnlineRows(on) {
   if (!relayFailed) relayNoteShown = false;
 }
 let relayNoteShown = false;
+let geminiHoldShown = false;
 
 function renderLoginBoxes(on) {
   const logins = (on && on.logins) || {};
@@ -1601,11 +1633,77 @@ function renderLoginBoxes(on) {
   }
 }
 
+// ---- P18(2026-11-21) Gemini 로그인 상자 ----------------------------------------------------
+const GEMINI_REASON = {
+  'cli-missing': 'Gemini 프로그램이 아직 없습니다. 「Gemini 프로그램 다시 받기」를 눌러 주세요.',
+  closed: '로그인 검은 창이 로그인 전에 닫혔습니다. 「다시 로그인」을 눌러 주세요.',
+  timeout: '5분 안에 로그인이 끝나지 않았습니다. 학교·회사 인터넷이 구글 로그인을 막을 수 있으니 <b>휴대폰 핫스팟</b>에서 「다시 로그인」을 눌러 보세요. Claude·ChatGPT 는 그대로 쓸 수 있습니다.',
+  spawn: '로그인 창을 띄우지 못했습니다. 「다시 로그인」을 눌러 주세요.',
+};
+const GEMINI_WAIT_TEXT = '브라우저에 구글 로그인 화면이 떴습니다. <b>Google AI Pro 구독이 있는 계정</b>을 고르고 「허용」을 누르세요. 함께 뜬 작은 <b>검은 창은 닫지 마세요</b> — 로그인이 끝나면 설치기가 닫고, 이 화면도 저절로 넘어갑니다.';
+const GEMINI_IDLE_TEXT = '「Google 로그인」을 누르면 작은 검은 창 하나와 브라우저가 열립니다. 브라우저에서 구글 계정을 고르고 「허용」을 누르면 끝입니다.';
+
+// Gemini 가 끝났는가(완료 화면으로 넘어가도 되는가): 고르지 않음 · 로그인 끝 · 건너뜀 · 프로그램 받기 실패(경고로 남김)
+function geminiSettled(on) {
+  if (!on || !on.geminiChosen) return true;
+  const g = on.gemini || {};
+  const ins = (g.install || {}).state, lg = (g.login || {}).state;
+  return lg === 'done' || lg === 'skipped' || ins === 'failed';
+}
+
+function renderGemini(on) {
+  const box = $('lb-gemini');
+  const chosen = !!(on && on.geminiChosen);
+  const chk = $('chk-gemini'); if (chk && !choiceEditing) chk.checked = chosen;
+  box.hidden = !chosen;
+  if (!chosen) return;
+  const g = on.gemini || {}, ins = g.install || {}, lg = g.login || {};
+  const installed = ins.state === 'done';
+  const st = lg.state || 'idle';
+  const mark = st === 'done' ? 'done' : st === 'failed' ? 'failed' : st === 'waiting' ? 'running' : 'pending';
+  const nowMs = Number(on.now) || Date.now();
+  const sec = st === 'waiting' && lg.startedAt ? Math.max(0, Math.round((nowMs - Number(lg.startedAt)) / 1000)) : null;
+  const rowText = st === 'done' ? (lg.reason === 'already' ? '이미 로그인돼 있습니다' : '연결됐습니다')
+    : st === 'skipped' ? '건너뛰었습니다 — 나중에 설치기를 다시 열면 이어서 할 수 있습니다'
+      : st === 'waiting' ? '브라우저에서 로그인하기를 기다리는 중' + (sec != null ? '(' + sec + '초째)' : '')
+        : st === 'failed' ? '아직 끝나지 않았습니다' : !installed ? '프로그램을 받으면 「Google 로그인」 단추가 켜집니다' : '아래 「Google 로그인」을 누르면 시작합니다';
+  $('lrow-gemini').innerHTML = '<span>' + stageMark(mark) + '</span><span>' + esc(rowText) + '</span><span class="dt"></span>';
+  const text = $('ltext-gemini');
+  if (ins.state === 'failed') text.innerHTML = esc(ins.message || 'Gemini 프로그램을 받지 못했습니다.') + ' 「Gemini 프로그램 다시 받기」를 누르거나, 건너뛰고 끝낼 수 있습니다.';
+  else if (st === 'done') text.textContent = '이 구독은 끝났습니다. IRIS 창에서 「Gemini」 단추가 바로 켜져 있습니다.';
+  else if (st === 'skipped') text.textContent = 'Gemini 는 이번에 건너뛰었습니다.';
+  else if (st === 'failed') text.innerHTML = GEMINI_REASON[lg.reason] || '로그인이 끝나지 않았습니다. 「다시 로그인」을 눌러 주세요.';
+  else if (st === 'waiting') text.innerHTML = GEMINI_WAIT_TEXT;
+  else text.textContent = GEMINI_IDLE_TEXT;
+  const loginBtn = $('btn-login-gemini');
+  loginBtn.hidden = st === 'failed' || st === 'done' || st === 'skipped';
+  if (!loginBtn.dataset.busy) loginBtn.disabled = !installed || st === 'waiting';
+  $('btn-reopen-gemini').hidden = !(st === 'failed' || (st === 'waiting' && sec != null && sec > 30));
+  const redl = $('btn-redl-gemini');
+  redl.hidden = ins.state !== 'failed' && lg.reason !== 'cli-missing';
+  redl.disabled = ins.state === 'downloading';
+  $('btn-skip-gemini').hidden = st === 'done' || st === 'skipped';
+}
+
+async function geminiLogin(btnId) {
+  const btn = $(btnId);
+  if (btn) { btn.disabled = true; btn.dataset.busy = '1'; }
+  let body = null;
+  try { ({ body } = await api('/api/online/gemini/login', {})); } catch { /* 폴링이 상태를 다시 본다 */ }
+  if (btn) { delete btn.dataset.busy; btn.disabled = false; }
+  if (body && body.ok === false && body.message) note('online-note', esc(body.message), 'bad');
+  watchOnline();
+}
+$('btn-login-gemini').onclick = () => geminiLogin('btn-login-gemini');
+$('btn-reopen-gemini').onclick = () => geminiLogin('btn-reopen-gemini');
+$('btn-redl-gemini').onclick = async () => { $('btn-redl-gemini').disabled = true; try { await api('/api/online/gemini/install', {}); } catch { /* 폴링 */ } watchOnline(); };
+$('btn-skip-gemini').onclick = async () => { try { await api('/api/online/gemini/skip', {}); } catch { /* 폴링 */ } watchOnline(); };
+
 async function applyChoice() {
   const subs = ['claude', 'chatgpt'].filter((p) => $('chk-' + p) && $('chk-' + p).checked);
   const btn = $('btn-choice-apply'); if (btn) btn.disabled = true;
   try {
-    const { body } = await api('/api/online/choice', { subscriptions: subs });
+    const { body } = await api('/api/online/choice', { subscriptions: subs, gemini: !!($('chk-gemini') && $('chk-gemini').checked) });
     if (body && body.ok === false) { note('online-note', esc(body.message || '적용하지 못했습니다.'), 'bad'); return; }
     loginBoxesFor = '';   // 상자를 다시 그린다
     note('online-note', '적용했습니다. ' + (subs.length === 2 ? '두 구독 모두 로그인하면 넘어갑니다.' : (subs[0] === 'claude' ? 'Claude' : 'ChatGPT') + ' 로그인만 끝나면 넘어갑니다.') + (body && body.restarted ? ' Claude Code 를 먼저 내려받습니다.' : ''));
@@ -1627,6 +1725,7 @@ async function onlineTick() {
   if (!on || typeof on !== 'object') return 'error';
   renderOnlineRows(on);
   renderLoginBoxes(on);
+  renderGemini(on);
 
   const logins = on.logins || {};
   const needed = Object.keys(logins).filter((p) => (logins[p] || {}).state !== 'not-needed');
@@ -1635,6 +1734,11 @@ async function onlineTick() {
   if (allLoggedIn && (!relay.state || relay.state === 'pending')) api('/api/online/relay', {}).catch(() => {});
 
   if (on.stage === 'done' || relay.state === 'done') {
+    // P18: Gemini 를 고른 설치는 그 로그인이 끝나거나 「건너뛰고 끝내기」를 누를 때까지 이 화면에 머문다
+    if (!geminiSettled(on)) {
+      if (!geminiHoldShown) { geminiHoldShown = true; note('online-note', 'Claude·ChatGPT 연결은 끝났습니다. 아래 <b>Google 로그인</b>을 마치거나 「Gemini 는 건너뛰고 끝내기」를 누르면 완료됩니다.'); }
+      return 'ok';
+    }
     badge('online', '완료', 'done');
     show('done');
     loadReport();
@@ -1668,7 +1772,7 @@ async function reopenLogin(provider) {
   watchOnline();
 }
 
-for (const p of ['claude', 'chatgpt']) { const c = $('chk-' + p); if (c) c.onchange = () => { choiceEditing = true; }; }
+for (const p of ['claude', 'chatgpt', 'gemini']) { const c = $('chk-' + p); if (c) c.onchange = () => { choiceEditing = true; }; }
 $('btn-choice-apply').onclick = applyChoice;
 $('btn-online-retry').onclick = () => { note('online-note', ''); startOnline(); };
 $('btn-relay-retry').onclick = async () => {
@@ -1863,10 +1967,11 @@ async function restore() {
   if (st.step === 'update') { enterUpdateOffer(st.auto || null); return; }
 
   if (st.choice && Array.isArray(st.choice.subscriptions) && st.choice.subscriptions.length) {
-    chosenSubs = st.choice.subscriptions;
+    chosenSubs = st.choice.gemini ? st.choice.subscriptions.concat(['gemini']) : st.choice.subscriptions;
     leadAgent = st.choice.leadAgent || chosenSubs[0];
     $('sub-claude').checked = chosenSubs.indexOf('claude') >= 0;
     $('sub-chatgpt').checked = chosenSubs.indexOf('chatgpt') >= 0;
+    $('sub-gemini').checked = !!st.choice.gemini;
     badge('choice', '완료', 'done');
   }
   if (st.decisions && Array.isArray(st.decisions.nodes)) {

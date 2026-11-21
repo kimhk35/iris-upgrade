@@ -107,6 +107,22 @@
       "bin": "bin/claude.exe",
       "note": "허가서 때문에 zip 에 넣지 않고 설치 중 내려받는 유일한 실행 부품(설계 D2-09)."
     },
+    "gemini": {
+      "kind": "url",
+      "version": "1.5.13",
+      "url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.13-5999302598852608/windows-x64/cli_windows_x64.exe",
+      "sha256": "91bd7720100dec46acd5a852e8291e5704eb753f5801c625950a15dc414fdf0a",
+      "sha256Source": "P18 실측 2026-11-21 — 같은 파일의 SHA-512 가 공식 manifests/windows_amd64.json 의 sha512 와 일치",
+      "sha512": "6b80a17a2bc34a969ed9ba31500a8201b0b4aad3e7fe061374022d161fec8bd7de49b6dc069a6ac67a90632e8671bbe860a7e94309bc5adbc536d27a75a86b58",
+      "bytes": 236040344,
+      "binName": "agy.exe",
+      "installTo": "%LOCALAPPDATA%/agy/bin",
+      "file": "agents/antigravity-cli-1.5.13.exe",
+      "dest": "_agent/shared/tools/agy",
+      "redistribute": "download",
+      "license": "Proprietary (Google Antigravity CLI terms)",
+      "note": "세 번째 AI = Gemini(Antigravity CLI). Google AI Pro 구독을 고른 설치에서만 온라인 단계가 받는다(P18 2026-11-21 사용자 결정 「판 고정 · 고른 사람만」). dest 는 받는 동안의 임시 자리이고, 실제 자리는 공식 설치 위치 installTo(agy 가 스스로 업데이트하는 자리 — 「부품은 tools 안에서만」의 사용자 승인 예외). 이미 깔린 PC 는 건드리지 않는다."
+    },
     "codex": {
       "kind": "npm-prefix",
       "npm": "@openai/codex",
