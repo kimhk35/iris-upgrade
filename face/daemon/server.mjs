@@ -20,6 +20,7 @@ import { findRoot, rootName, Settings } from './workspace.mjs';
 import { dashDir, dashPort, sweeperPath, pythonExe } from './paths.mjs';
 import { MemoryMonitor } from './memory.mjs';
 import { toPdf, isConvertible } from './doc2pdf.mjs';
+import { openPages, pageFile, pageHashes, sweepCache, ID_RE } from './docpages.mjs';
 import { Voice } from './voice.mjs';
 import { activeAgentsMap, sleepingAgents, agentStatus, wake, SleepWatcher, KNOWN_AGENTS } from './wake.mjs';
 import { ModuleHost, NAME_RE } from './modules.mjs';
@@ -122,6 +123,7 @@ models.refreshGemini({ force: true, onChange: () => broadcast(agentsMsg()) }); /
 // Gemini 사용량(P18 2026-11-19): 10분마다 agy /usage 화면을 숨은 터미널로 읽어 stategemini-usage.json — 대시보드 GEMINI 칸·머리줄 배터리. 끄기 = IRIS_FACE_GEMINI_USAGE=0
 const geminiUsage = new GeminiUsage({ stateDir: STATE, agyExe: () => agyExe(childEnv()), agyHome: AGY_HOME, env: () => childEnv(), log: (m) => log(m), intervalMs: process.env.IRIS_FACE_GEMINI_USAGE === '0' ? 0 : 600000 });
 geminiUsage.start();
+try { const n = sweepCache(path.join(STATE, 'doc-cache')); if (n) log(`doc-cache: 오래된 미리보기 ${n}개 정리`); } catch {}
 try { models.refresh({ force: true }); log(`models: claude=${models.info().claude.source} ${AGENTS.claude.models.map((m) => `${m.id}=${m.label}`).join(', ')}`); } catch (e) { log(`models init error: ${e?.message || e}`); }
 setInterval(() => { try { if (models.refresh()) broadcast(agentsMsg()); } catch {} }, 10 * 60_000).unref();
 // ---- 모듈 콘센트(계약 v1, 2026-09-11): modules\<이름>\ 을 별 프로세스로. 모듈이 없으면 아무것도 하지 않는다(바깥 연결 0 = verify:nomodule). ----
@@ -603,21 +605,62 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && p === '/api/doc') {
       // 문서(한/글·워드·엑셀·PPT)를 PDF로 변환해 삽입용으로 서빙. 원본은 읽기 전용, 결과는 state/doc-cache 캐시.
+      // ?pages=1 = 변환하고 쪽 그림을 준비해 { ok, id, n, sizes } (캔버스가 다 된 뒤에 화면을 갈아 끼우려고). 미리보기 칸(iframe)에서 실패하면 JSON 글자 대신 안내 화면(P18 2026-11-24).
       const raw = url.searchParams.get('path') || ''; const file = path.resolve(raw.replace(/^\/([A-Za-z]:)/, '$1'));
-      if (/^[A-Za-z]:\\(windows|program files|program files \(x86\)|programdata)\\/i.test(file)) { log(`403 doc ${file}`); return json(res, 403, { error: `시스템 폴더는 열 수 없습니다: ${file}` }); }
-      if (!isConvertible(file)) { log(`403 doc ext ${file}`); return json(res, 403, { error: `변환할 수 없는 문서 형식입니다: ${file}` }); }
-      if (!fs.existsSync(file) || !fs.statSync(file).isFile()) { log(`404 doc ${file}`); return json(res, 404, { error: `파일이 없습니다: ${file}` }); }
+      const fail = (code, msg) => {
+        log(`${code} doc ${file}: ${msg}`);
+        if (!/^(iframe|document|frame)$/.test(String(req.headers['sec-fetch-dest'] || ''))) return json(res, code, { error: msg });
+        const h = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        res.writeHead(code, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" });
+        return res.end(`<!doctype html><html lang="ko"><meta charset="utf-8"><title>미리보기 안내</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f4ef;color:#2b2a27;font:15px/1.7 "Malgun Gothic",sans-serif}main{max-width:30em;padding:24px;text-align:center}b{display:block;margin-bottom:6px;word-break:break-all}</style><main><b>${h(path.basename(file))}</b>${h(msg)}</main></html>`);
+      };
+      if (/^[A-Za-z]:\\(windows|program files|program files \(x86\)|programdata)\\/i.test(file)) return fail(403, '시스템 폴더의 파일은 열 수 없어요.');
+      if (!isConvertible(file)) return fail(403, '미리보기로 바꿀 수 없는 문서 형식이에요.');
+      if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return fail(404, '이 자리에 파일이 없어요. 옮겼거나 이름이 바뀌었을 수 있어요.');
       try {
         const pdf = await toPdf(file, path.join(STATE, 'doc-cache'), log);
+        if (url.searchParams.get('pages') === '1') { // 쪽 그림 보기(docview.js). 그릴 수 없는 PC 면 pages 없이 → 화면이 PDF 로 보여 준다
+          try { return json(res, 200, { ok: true, ...(await openPages(pdf, log)) }); } catch (e) { log(`docpages ${e.message}`); return json(res, 200, { ok: true }); }
+        }
         return serveFile(res, pdf);
-      } catch (e) {
-        log(`502 doc ${file}: ${e.message}`);
-        if (!/^(iframe|document|frame)$/.test(String(req.headers['sec-fetch-dest'] || ''))) return json(res, 502, { error: e.message });
-        // 미리보기 칸에서는 JSON 글자 대신 읽을 수 있는 안내(P18 2026-11-24)
-        const h = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-        res.writeHead(502, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" });
-        return res.end(`<!doctype html><html lang="ko"><meta charset="utf-8"><title>미리보기 안내</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f4ef;color:#2b2a27;font:15px/1.7 "Malgun Gothic",sans-serif}main{max-width:30em;padding:24px;text-align:center}b{display:block;margin-bottom:6px;word-break:break-all}p{margin:0;color:#6b675f}</style><main><b>${h(path.basename(file))}</b>${h(e.message)}<p>원본은 그대로 있습니다. 「원본 열기」(대화에서는 ⧉)로 열어 볼 수 있어요.</p></main></html>`);
+      } catch (e) { return fail(502, e.message); }
+    }
+    if (req.method === 'GET' && (p === '/api/doc/page' || p === '/api/doc/hashes')) {
+      const id = url.searchParams.get('id') || ''; if (!ID_RE.test(id)) return json(res, 400, { error: 'id' });
+      if (p === '/api/doc/hashes') { const hashes = await pageHashes(id); return hashes ? json(res, 200, { hashes }) : json(res, 404, { error: 'no pages' }); }
+      const n = Number(url.searchParams.get('n')); if (!Number.isInteger(n) || n < 1 || n > 5000) return json(res, 400, { error: 'n' });
+      const f = await pageFile(id, n); if (!f) return json(res, 404, { error: 'no page' });
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400, immutable' }); // id 는 내용 지문이라 바뀌지 않는다
+      return fs.createReadStream(f).pipe(res);
+    }
+    // 캔버스: 도구 글에 나온 문서 이름(transcript.mjs docMentions) → 실제 파일. 절대 경로 → 작업 폴더 기준 → 작업 폴더 아래에서 같은 이름(깊이 4·폴더 400개까지, 가장 최근 것).
+    if (req.method === 'GET' && p === '/api/canvas/find') {
+      const cwd = path.resolve(url.searchParams.get('cwd') || ''); const names = url.searchParams.getAll('name').slice(0, 40);
+      if (!/^[A-Za-z]:\\/.test(String(url.searchParams.get('cwd') || ''))) return json(res, 400, { error: '작업 폴더가 없습니다' });
+      const blocked = (f) => /^[A-Za-z]:\\(windows|program files|program files \(x86\)|programdata)\\/i.test(f) || /[\\/]secrets[\\/]/i.test(f) || /^\.env/i.test(path.basename(f));
+      const stat = (f) => { if (blocked(f) || !(isConvertible(f) || /\.pdf$/i.test(f))) return null; try { const st = fs.statSync(f); return st.isFile() ? { path: f, mtime: st.mtimeMs } : null; } catch { return null; } };
+      let index = null; // 같은 이름 찾기용 — 필요할 때만 한 번 훑는다
+      const byName = (n) => {
+        if (!index) {
+          index = new Map(); const queue = [[cwd, 0]]; let dirs = 0;
+          while (queue.length && dirs < 400) {
+            const [dir, d] = queue.shift(); dirs++;
+            let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+            for (const e of ents) {
+              if (e.isDirectory()) { if (d < 4 && !/^(node_modules|\.git|\.venv|venv|__pycache__|secrets|doc-cache|_build)$/i.test(e.name)) queue.push([path.join(dir, e.name), d + 1]); }
+              else if (e.isFile() && (isConvertible(e.name) || /\.pdf$/i.test(e.name)) && !e.name.startsWith('~$')) { const k = e.name.toLowerCase(); index.set(k, [...(index.get(k) || []), path.join(dir, e.name)]); }
+            }
+          }
+        }
+        return (index.get(n.toLowerCase()) || []).map(stat).filter(Boolean).sort((x, y) => y.mtime - x.mtime)[0] || null;
+      };
+      const out = new Map();
+      for (const n of names) {
+        const w = n.replace(/^file:\/\/\//i, '').replace(/^\/([A-Za-z])\//, '$1:\\').replace(/^\/([A-Za-z]:)/, '$1').replace(/\//g, '\\');
+        const hit = /^[A-Za-z]:\\/.test(w) ? stat(path.resolve(w)) : stat(path.resolve(cwd, w)) || byName(path.basename(w));
+        if (hit && !out.has(hit.path.toLowerCase())) out.set(hit.path.toLowerCase(), { name: n, ...hit });
       }
+      return json(res, 200, { files: [...out.values()] });
     }
     if (req.method === 'POST' && p === '/api/open') {
       // 원본 파일을 이 PC의 기본 앱(한/글·워드·엑셀 …)으로 연다. 브라우저가 못 여는 문서의 ⧉ 전용.

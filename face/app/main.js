@@ -909,6 +909,7 @@
   function onEscape() {
     const now = Date.now(); if (now - lastEscAt < 300) return; lastEscAt = now;
     if (renaming) { renaming.cancel(); return; }      // 이름 고치는 중 Esc = 고치기 취소만(작업 중단 아님, v2.85)
+    if (DocView.escape()) return;                      // 슬라이드 전체 화면 = Esc 로 닫기만(작업 중단 아님, P18 2026-11-24)
     if (RowMenu.close()) return;                       // 줄 메뉴(⋯)가 떠 있으면 Esc = 메뉴만 닫기(P18 2026-11-19)
     if (TeamPop.close()) return;                       // 「계정 공유」 작은 창이 떠 있으면 Esc = 창만 닫기(P18 2026-11-20)
     if (Tutorial.isOpen()) { Tutorial.back(); return; } // 튜토리얼 위에서 Esc = 그 안의 한 단계 뒤로만(크게 보기 닫기·역할 다시 고르기) — 작업 중단으로 새지 않는다(v2.90 → v2.93)
@@ -931,7 +932,7 @@
   window.irisHost?.onEscape?.(() => { if (mode === 'term') return; onEscape(); });
   // 미리보기 iframe(PDF 뷰어 등)이 막 삽입되며 초점을 가져가면 입력창으로 되돌린다(삽입 4초 안에만 — 사용자가 직접 누른 미리보기는 그대로).
   window.addEventListener('blur', () => setTimeout(() => {
-    const a = document.activeElement; if (!a || a.tagName !== 'IFRAME' || !a.closest('#chat')) return;
+    const a = document.activeElement; if (!a || a.tagName !== 'IFRAME' || !a.closest('#chat, #canvas')) return; // 캔버스 미리보기도(P18 2026-11-24)
     const born = Number(a.dataset.born || 0); if (born && Date.now() - born < 4000) ta.focus();
   }, 0));
 

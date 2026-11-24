@@ -7,7 +7,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { writtenFiles } from '../daemon/transcript.mjs';
+import { writtenFiles, docMentions } from '../daemon/transcript.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 3459, BASE = `http://127.0.0.1:${PORT}`;
@@ -24,6 +24,14 @@ const patch = '*** Begin Patch\n*** Add File: web/index.html\n+<h1>x</h1>\n*** U
 const wf = writtenFiles('apply_patch', { input: patch });
 ok(wf.length === 2 && wf[0] === 'web/index.html' && wf[1] === 'web/app.js', `1 코덱스 apply_patch → 추가·수정 파일 (${wf.join(',')})`);
 ok(writtenFiles('apply_patch', patch).length === 2, '1 코덱스 apply_patch 글자 그대로도');
+
+// 문서는 거의 늘 명령·문서 도구로 만든다 — 그 글 속 이름 뽑기(P18 2026-11-24 "캔버스에서 PPT 조회가 이상함")
+const dm = (v) => docMentions(v);
+ok(dm({ command: 'python -c "p.save(\'수업 자료.pptx\')"' }).includes('수업 자료.pptx'), '1 파이썬 명령 속 PPT 이름(따옴표 안 빈칸 포함)');
+ok(dm({ command: 'python make.py out/결과.docx' }).includes('out/결과.docx'), '1 따옴표 없는 상대 경로 워드');
+ok(dm({ out_path: 'C:\\일 감\\활동지.hwpx' }).includes('C:\\일 감\\활동지.hwpx'), '1 문서 도구 인자의 절대 경로 hwpx(빈칸)');
+ok(dm('저장했습니다: C:\\일 감\\a (1).pptx 완료').some((x) => x === 'C:\\일 감\\a (1).pptx'), '1 결과 글 속 절대 경로');
+ok(dm({ command: 'ls; echo hello.py x.pptx2' }).length === 0, '1 문서가 아닌 이름은 안 뽑음');
 
 // ② 데몬
 const state = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-face-cv-'));
@@ -53,6 +61,19 @@ try {
   ok((await fetch(fsu(path.join(work, 'secrets', 'k.json')))).status === 403, '2 secrets = 403');
   ok((await fetch(`${BASE}/api/file/stat?path=${encodeURIComponent('C:\\Windows\\win.ini')}`)).status === 403, '2 시스템 폴더 = 403');
   ok((await fetch(fsu(path.join(work, 'x.exe')))).status === 404 || (await fetch(fsu(path.join(work, 'x.exe')))).status === 415, '2 없는/모르는 종류 = 거절');
+
+  // 문서 찾기: 이름 → 실제 파일(작업 폴더 기준)
+  fs.mkdirSync(path.join(work, 'out', '깊은'), { recursive: true });
+  for (const n of ['수업.pptx', path.join('out', '깊은', '보고서.docx')]) fs.writeFileSync(path.join(work, n), 'x');
+  fs.writeFileSync(path.join(work, 'secrets', '비밀.pptx'), 'x');
+  const find = async (...names) => (await (await fetch(`${BASE}/api/canvas/find?cwd=${encodeURIComponent(work)}${names.map((n) => `&name=${encodeURIComponent(n)}`).join('')}`)).json()).files;
+  const f1 = await find('수업.pptx', '보고서.docx', path.join(work, '수업.pptx'), '없음.hwpx');
+  ok(f1.length === 2 && f1[0].path === path.join(work, '수업.pptx') && f1[1].path.endsWith('보고서.docx') && f1[0].mtime > 0, `2 문서 찾기 = 상대·하위 폴더·절대, 없는 것 제외 (${f1.length})`);
+  ok((await find('secrets/비밀.pptx', '비밀.pptx')).length === 0, '2 문서 찾기도 secrets 는 안 내줌');
+  const bad = await fetch(`${BASE}/api/doc?pages=1&path=${encodeURIComponent(path.join(work, '없음.pptx'))}`);
+  ok(bad.status === 404, '2 없는 문서 미리보기 = 404');
+  const badFrame = await fetch(`${BASE}/api/doc?path=${encodeURIComponent(path.join(work, '없음.pptx'))}`, { headers: { 'sec-fetch-dest': 'iframe' } });
+  ok(/text\/html/.test(badFrame.headers.get('content-type')) && /없/.test(await badFrame.text()), '2 미리보기 칸에서는 안내 화면(JSON 글자 아님)');
 
   // ③ 화면
   const req = createRequire(import.meta.url);

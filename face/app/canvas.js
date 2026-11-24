@@ -2,6 +2,8 @@
 /* 캔버스(P18 고도화, 2026-11-12 사용자 결정 = 시안 B「오른쪽 나란히」): AI 가 지금 만들거나 고치는 파일을 대화 옆에서 계속 보여 준다.
    ① 저절로 열림 — 세션 기록의 도구 항목(it.files: 데몬 transcript.mjs writtenFiles)과 대화 글 속 절대 경로에서 미리볼 수 있는 파일을 모아 탭으로.
       세션에서 처음 파일이 생기면 한 번 저절로 열린다(사용자가 닫았으면 다시 열지 않고 머리줄 단추에 숫자만).
+      문서(PPT·워드·한/글·엑셀·PDF)는 파이썬 명령·문서 도구로 만들어지므로(P18 2026-11-24 신고) 도구 글에 나온 이름(it.docs)을
+      데몬(/api/canvas/find)에 물어 **그 뒤에 실제로 만들어지거나 바뀐 파일만** 올린다 — 읽기만 한 옛 파일은 올리지 않는다.
    ② 실시간 새로고침 — 열려 있고 창이 보일 때만 지금 탭의 바뀜 시각(/api/file/stat)을 1.5초마다 보고, 바뀌면 다시 그린다(「방금 바뀜」).
       「따라가기」가 켜져 있으면 가장 최근에 쓴 파일로 자동 이동.
    ③ 눌러서 고치기 — HTML 은 「고르기」를 켜면 데몬이 격리된 미리보기에 작은 스크립트를 붙여(/api/fs/…?pick=1) 누른 곳의 글자를 postMessage 로 알린다.
@@ -57,6 +59,7 @@ window.Canvas = (() => {
   }
   /** 세션 기록 항목이 들어올 때(main.js: 처음 읽기·실시간 추가). reset 이면 그 세션 목록을 기록 기준으로 다시 모은다(기억한 지금 탭은 유지). */
   function onItems(id, items, reset, dir) {
+    noteDocs(id, items, reset, dir);
     if (!id || id === 'preview' || id !== sid) return;
     if (dir) cwd = dir;
     const st = S(); if (!st) return;
@@ -66,6 +69,34 @@ window.Canvas = (() => {
       if (it.kind === 'assistant' && it.text) for (const m of String(it.text).matchAll(PATH_RE)) add(m[0], { written: false });
     }
     // 처음 파일이 생긴 세션은 한 번 저절로 연다(사용자가 닫았으면 존중)
+    if (st.files.length && !st.autoOpened && !st.closedByUser && !open) { st.autoOpened = true; save(); show(true); return; }
+    save(); render(wrote);
+  }
+  // ── 문서 이름 → 실제 파일 ── 세션마다 { 이름: 처음 나온 시각 }. 명령 글(만들기 전)과 결과 글(만든 뒤) 어느 쪽에 나와도 되게 새 항목이 올 때마다 다시 묻는다.
+  const mentions = {}; let mTimer = 0;
+  function noteDocs(id, items, reset, dir) {
+    if (!id || id === 'preview' || id !== sid) return;
+    if (dir) cwd = dir;
+    if (reset) mentions[id] = {};
+    const m = mentions[id] ||= {};
+    for (const it of items || []) for (const d of it.docs || []) { const t = Date.parse(it.t || '') || Date.now(); if (!(m[d] <= t)) m[d] = t; }
+    const keys = Object.keys(m); for (const k of keys.slice(0, Math.max(0, keys.length - 80))) delete m[k];
+    if (!Object.keys(m).length) return;
+    clearTimeout(mTimer); mTimer = setTimeout(() => findDocs(id, !!reset), reset ? 50 : 700);
+  }
+  async function findDocs(id, quiet) {
+    const m = mentions[id]; if (!m || id !== sid || !cwd) return;
+    let found = [];
+    const names = Object.keys(m).slice(-40);
+    try { found = (await (await fetch(`/api/canvas/find?cwd=${encodeURIComponent(cwd)}${names.map((n) => `&name=${encodeURIComponent(n)}`).join('')}`)).json()).files || []; } catch { return; }
+    if (id !== sid) return;
+    const st = S(); st.docs ||= {}; let wrote = false;
+    for (const f of found.sort((a, b) => a.mtime - b.mtime)) { // 가장 최근 것이 마지막에 = 지금 탭
+      const first = m[f.name], key = f.path.toLowerCase(), before = st.docs[key];
+      if (f.mtime < first - 3000 || before === f.mtime) continue; // 그 전부터 있던 파일 · 이미 아는 판
+      st.docs[key] = f.mtime;
+      if (quiet) add(f.path, { written: false }); else { add(f.path, { written: true }); wrote = true; }
+    }
     if (st.files.length && !st.autoOpened && !st.closedByUser && !open) { st.autoOpened = true; save(); show(true); return; }
     save(); render(wrote);
   }
@@ -85,6 +116,7 @@ window.Canvas = (() => {
       <div class="cv-head"><span class="cv-t">캔버스</span><span class="cv-live" title="파일이 바뀌면 저절로 다시 그립니다">실시간</span><span class="cv-sp"></span>
         <button type="button" class="cv-chip" data-cv="follow" title="가장 최근에 쓴 파일로 자동 이동">따라가기</button>
         <button type="button" class="cv-chip" data-cv="pick" title="미리보기에서 고칠 곳을 눌러 고릅니다(HTML)">고르기</button>
+        <button type="button" class="cv-chip" data-cv="pdf" title="글자를 긁어 복사하거나 인쇄할 때" hidden>PDF로 보기</button>
         <button type="button" class="cv-chip" data-cv="app" title="이 PC의 프로그램(파워포인트·워드·한/글 등)으로 원본 열기" hidden>원본 열기</button>
         <button type="button" class="icon-btn" data-cv="ext" title="새 창에서 열기">⧉</button>
         <button type="button" class="icon-btn" data-cv="close" title="닫기 (Ctrl+Shift+K)">✕</button></div>
@@ -95,11 +127,13 @@ window.Canvas = (() => {
     host.addEventListener('click', (e) => {
       const tab = e.target.closest('[data-cvfile]'); if (tab) { const st = S(); st.cur = tab.dataset.cvfile; const f = st.files.find((x) => x.path === st.cur); if (f) f.unseen = false; save(); return render(true); }
       const b = e.target.closest('[data-cv]'); if (!b) return;
+      if (b.dataset.cv === 'retry') { tries = 0; return void draw(); }
       const a = b.dataset.cv, st = S();
       if (a === 'close') return show(false, { user: true });
       if (a === 'follow') { st.follow = !st.follow; save(); return render(false); }
       if (a === 'pick') { pick = !pick; return render(true); }
       if (a === 'ext' && st?.cur) return window.open(curKind() === 'doc' ? `/api/doc?path=${encodeURIComponent(st.cur)}` : fsUrl(st.cur), '_blank');
+      if (a === 'pdf' && st?.cur) { asPdf.has(st.cur) ? asPdf.delete(st.cur) : asPdf.add(st.cur); shown = null; return render(true); }
       if (a === 'app' && st?.cur) return void fetch('/api/open', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: st.cur }) });
       if (a === 'ask') return ask();
     });
@@ -143,23 +177,27 @@ window.Canvas = (() => {
     const kind = curKind();
     const pb = host.querySelector('[data-cv="pick"]'); pb.hidden = kind !== 'html'; pb.classList.toggle('on', pick && kind === 'html');
     host.querySelector('[data-cv="app"]').hidden = kind !== 'doc';
+    const pd = host.querySelector('[data-cv="pdf"]'); pd.hidden = kind !== 'doc'; pd.classList.toggle('on', asPdf.has(st.cur));
     host.querySelector('.cv-tabs').innerHTML = st.files.length
       ? st.files.map((f) => `<button type="button" role="tab" class="cv-tab${f.path === st.cur ? ' cur' : ''}${f.unseen ? ' new' : ''}" data-cvfile="${esc(f.path)}" title="${esc(f.path)}">${esc(base(f.path))}</button>`).join('')
       : '';
     host.querySelector('.cv-go').textContent = kind === 'html' ? '이 부분 고쳐 줘' : '이 파일 고쳐 줘';
-    if (reload) { lastMtime = null; draw(); }
+    if (reload) { lastMtime = null; tries = 0; draw(); }
   }
+  const asPdf = new Set(); // 「PDF로 보기」를 켠 문서
+  let drawNo = 0, tries = 0, shown = null; // drawNo = 마지막 그리기 번호(늦게 끝난 앞 그리기를 버린다), shown = 지금 화면에 있는 문서
   async function draw(mtime) {
-    const view = host.querySelector('.cv-view'), st = S(), p = st?.cur, kind = curKind();
+    const no = ++drawNo; const view = host.querySelector('.cv-view'), st = S(), p = st?.cur, kind = curKind();
+    if (kind !== 'doc') shown = null;
     if (!p) { view.innerHTML = `<div class="cv-empty">AI 가 HTML·그림·PDF·한글·워드·코드 파일을 만들거나 고치면 여기에 바로 보입니다.</div>`; return; }
     // 그리기 전에 그 파일의 바뀜 시각을 재어 기준으로 삼는다 — 그린 뒤 첫 확인까지의 틈에 바뀐 것을 놓치지 않게(P18 검사에서 발견)
-    if (mtime == null) { try { const j = await (await fetch(`/api/file/stat?path=${encodeURIComponent(p)}`)).json(); if (j.exists) mtime = j.mtime; } catch {} if (p !== S()?.cur) return; }
+    if (mtime == null) { try { const j = await (await fetch(`/api/file/stat?path=${encodeURIComponent(p)}`)).json(); if (j.exists) mtime = j.mtime; } catch {} if (p !== S()?.cur || no !== drawNo) return; }
     lastMtime = mtime ?? null;
     const v = `?v=${Math.round(mtime || Date.now())}`;
     if (kind === 'html') view.innerHTML = `<iframe class="cv-frame" sandbox="allow-scripts allow-popups allow-forms allow-modals" src="${fsUrl(p, v + (pick ? '&pick=1' : ''))}" title="${esc(base(p))}"></iframe>`;
     else if (kind === 'img') view.innerHTML = `<div class="cv-img"><img src="${fsUrl(p, v)}" alt="${esc(base(p))}"></div>`;
-    else if (kind === 'pdf') view.innerHTML = `<iframe class="cv-frame" src="${fsUrl(p, v)}" title="${esc(base(p))}"></iframe>`;
-    else if (kind === 'doc') view.innerHTML = `<div class="cv-wait">미리보기를 만드는 중… (처음에는 10초쯤 걸려요)</div><iframe class="cv-frame" src="/api/doc?path=${encodeURIComponent(p)}&v=${Math.round(mtime || Date.now())}#navpanes=0&view=FitH" title="${esc(base(p))}" onload="this.previousElementSibling&&this.previousElementSibling.remove()"></iframe>`;
+    else if (kind === 'pdf') view.innerHTML = `<iframe class="cv-frame" data-born="${Date.now()}" src="${fsUrl(p, v)}#navpanes=0&view=FitH" title="${esc(base(p))}"></iframe>`;
+    else if (kind === 'doc') return drawDoc(view, p, mtime, no);
     else {
       try {
         const r = await fetch(`/api/file/text?path=${encodeURIComponent(p)}`); const j = await r.json();
@@ -168,6 +206,22 @@ window.Canvas = (() => {
         view.innerHTML = `<pre class="cv-code">${lines.map((l, i) => `<span class="ln">${i + 1}</span>${esc(l)}`).join('\n')}</pre>${j.truncated ? '<div class="cv-note">파일이 커서 앞부분만 보입니다</div>' : ''}`;
       } catch (e) { view.innerHTML = `<div class="cv-empty">이 파일을 열지 못했습니다(${esc(e.message)})</div>`; }
     }
+  }
+  /** 문서: 먼저 PDF 로 바꾸고 쪽 그림을 준비해(pages) 다 되면 갈아 끼운다 — 바꾸는 동안 같은 문서의 앞 화면은 그대로 둔다. */
+  async function drawDoc(view, p, mtime, no) {
+    const live = () => no === drawNo && p === S()?.cur && open;
+    if (shown !== p) view.innerHTML = '<div class="cv-wait">미리보기를 만드는 중… (처음에는 10초쯤 걸려요)</div>';
+    else if (!view.querySelector('.cv-flash')) view.insertAdjacentHTML('beforeend', '<span class="cv-flash cv-work">새로 만드는 중…</span>');
+    const q = `/api/doc?path=${encodeURIComponent(p)}&v=${Math.round(mtime || Date.now())}`;
+    let err = '', info = null;
+    try { const r = await fetch(`${q}&pages=1`); const j = await r.json().catch(() => ({})); if (r.ok) info = j; else err = j.error || `오류 ${r.status}`; } catch { err = 'IRIS 와 연결이 끊겼어요. 잠시 뒤 다시 시도해 주세요.'; }
+    if (!live()) return;
+    if (!err && info.n && !asPdf.has(p)) { shown = p; tries = 0; return DocView.mount(view, p, info); }
+    if (!err) { shown = p; tries = 0; view.innerHTML = `<iframe class="cv-frame" data-born="${Date.now()}" src="${q}#navpanes=0&view=FitH" title="${esc(base(p))}"></iframe>`; return; }
+    shown = null;
+    view.innerHTML = `<div class="cv-empty cv-err"><b>${esc(base(p))}</b><span>${esc(err)}</span><span class="cv-errbtns"><button type="button" class="cv-chip" data-cv="retry">다시 시도</button><button type="button" class="cv-chip" data-cv="app">원본 열기</button></span></div>`;
+    // 막 저장되는 중이던 파일은 저절로 다시(최대 5번)
+    if (mtime && Date.now() - mtime < 60_000 && tries++ < 5) setTimeout(() => { if (live()) draw(); }, 4000);
   }
   // ── 실시간: 지금 탭의 바뀜 시각 ──
   async function check() {
@@ -178,7 +232,9 @@ window.Canvas = (() => {
     host.querySelector('.cv-live').classList.remove('off');
     if (lastMtime === null) { lastMtime = j.mtime; return; }
     if (j.mtime !== lastMtime) {
-      await draw(j.mtime);
+      tries = 0; await draw(j.mtime);
+      if (p !== S()?.cur) return;
+      host.querySelector('.cv-work')?.remove();
       const fl = document.createElement('span'); fl.className = 'cv-flash'; fl.textContent = '방금 바뀜'; host.querySelector('.cv-view').appendChild(fl); setTimeout(() => fl.remove(), 1800);
     }
   }

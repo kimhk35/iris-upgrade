@@ -11,6 +11,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-doc2pdf-'));
 process.env.IRIS_ROOT = tmp;
 delete process.env.IRIS_FACE_PY; delete process.env.IRIS_FACE_HWP_PY;
 const { pyCandidates, toPdf, friendlyError } = await import('../daemon/doc2pdf.mjs');
+const { openPages, pageFile, pageHashes, sweepCache, idOf, ID_RE } = await import('../daemon/docpages.mjs');
 
 let pass = 0, skip = 0;
 const t = async (name, fn) => { await fn(); pass++; console.log('PASS', name); };
@@ -52,6 +53,24 @@ await t('실패 이유는 쉬운 한국어', async () => {
   assert.match(friendlyError('.docx', 'NOAPP'), /워드/);
   assert.match(friendlyError('.hwpx', 'NOAPP'), /한\/글/);
   assert.match(friendlyError('.pptx', 'LOCKED'), /다른 프로그램/);
+});
+
+// ── 쪽 그림(docpages) ──
+const pdfOf = (n) => { const p = path.join(tmp, `${n.padStart(16, '0')}-x.pptx.pdf`); fs.writeFileSync(p, '%PDF'); return p; };
+await t('쪽 그림: 모듈 없는 파이썬은 건너뛰고, 앞쪽부터 생기는 대로 · 끝나면 지문', async () => {
+  const no = fake('pno.mjs', 'process.exit(3)');
+  const yes = fake('pyes.mjs', "import fs from 'node:fs'; import path from 'node:path'; const d=process.argv[3]; fs.mkdirSync(d,{recursive:true}); fs.writeFileSync(path.join(d,'info.json'),JSON.stringify({n:2,sizes:[[16,9],[16,9]]})); for (const n of [1,2]) { await new Promise(r=>setTimeout(r,250)); fs.writeFileSync(path.join(d,`p${n}.jpg`),'j'); } fs.writeFileSync(path.join(d,'hashes.json'),'[\"a\",\"b\"]');");
+  const pdf = pdfOf('a1'); const info = await openPages(pdf, () => {}, { candidates: [no, yes] });
+  assert.equal(info.n, 2); assert.match(info.id, ID_RE); assert.equal(info.id, idOf(pdf));
+  assert.ok(await pageFile(info.id, 2)); assert.equal(await pageFile(info.id, 3), null); assert.deepEqual(await pageHashes(info.id), ['a', 'b']);
+  assert.equal(await pageFile('ffffffffffffffff', 1), null);
+});
+await t('쪽 그림을 못 그리는 PC = 오류(화면은 PDF 로 보여 줌)', async () => { await assert.rejects(openPages(pdfOf('a2'), () => {}, { candidates: [] })); });
+await t('오래된 미리보기만 정리(다른 파일은 안 건드림)', () => {
+  const d = path.join(tmp, 'sweep'); fs.mkdirSync(d); const old = new Date(Date.now() - 20 * 86400000);
+  for (const n of ['0123456789abcdef-a.pptx.pdf', 'fedcba9876543210-b.pptx.pdf', '내 파일.pdf']) fs.writeFileSync(path.join(d, n), 'x');
+  for (const n of ['0123456789abcdef-a.pptx.pdf', '내 파일.pdf']) fs.utimesSync(path.join(d, n), old, old);
+  assert.equal(sweepCache(d), 1); assert.deepEqual(fs.readdirSync(d).sort(), ['fedcba9876543210-b.pptx.pdf', '내 파일.pdf'].sort());
 });
 
 if (process.env.IRIS_DOC_REAL === '1') {

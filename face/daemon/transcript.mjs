@@ -147,13 +147,13 @@ export class TranscriptTail {
         const input = geminiArgs(c?.args);
         const name = String(c?.name || 'tool');
         const files = writtenFiles(name, input);
-        out.push({ t, kind: 'tool', name, detail: summarizeInput(name, input), ...(files.length ? { files } : {}) });
+        out.push(withDocs({ t, kind: 'tool', name, detail: summarizeInput(name, input), ...(files.length ? { files } : {}) }, input));
       }
       return out;
     }
     if (r.type === 'GENERIC') {
       const body = String(r.content || '').split('\n').filter((l) => !/^(Created|Completed) At: /.test(l)).join('\n').trim();
-      return body ? [{ t, kind: 'tool_result', text: clip(body, 6000) }] : [];
+      return body ? [withDocs({ t, kind: 'tool_result', text: clip(body, 6000) }, body)] : [];
     }
     return this.countUnknown(r.type || 'gemini', []);
   }
@@ -183,7 +183,7 @@ export class TranscriptTail {
           if (this.calls.has(b.tool_use_id)) this.finished.set(b.tool_use_id, t); // 동기형 보조의 최종 보고 = 완료
           if (INTERRUPT_RE.test(tx)) { out.push({ t, kind: 'interrupt' }); continue; } // 도구 실행 중 Esc
           this.noteBackground(b.tool_use_id, tx, t);
-          out.push({ t, kind: 'tool_result', text: clip(tx, 6000), error: !!b.is_error });
+          out.push(withDocs({ t, kind: 'tool_result', text: clip(tx, 6000), error: !!b.is_error }, tx));
         }
         else if (b.type === 'image') out.push({ t, kind: 'user', text: '[이미지]' });
       }
@@ -199,7 +199,7 @@ export class TranscriptTail {
         else {
           if (b.name === 'Bash' || b.name === 'Monitor' || b.name === 'TaskStop' || b.name === 'KillShell') this.toolIn.set(b.id, { name: b.name, desc: clip(b.input?.description || '', 120), task: b.input?.task_id || b.input?.shell_id || null });
           const files = writtenFiles(b.name, b.input);
-          out.push({ t, kind: 'tool', name: b.name, detail: summarizeInput(b.name, b.input), ...(files.length ? { files } : {}) });
+          out.push(withDocs({ t, kind: 'tool', name: b.name, detail: summarizeInput(b.name, b.input), ...(files.length ? { files } : {}) }, b.input));
         }
       }
     }
@@ -287,13 +287,13 @@ export class TranscriptTail {
           if (name === 'request_user_input') return [{ t, kind: 'ask', text: '답변이 필요합니다' }];
           const raw = p.type === 'function_call' ? p.arguments : p.input;
           const files = writtenFiles(name, safeJson(raw));
-          return [{ t, kind: 'tool', name, detail: summarizeInput(name, safeJson(raw)), ...(files.length ? { files } : {}) }];
+          return [withDocs({ t, kind: 'tool', name, detail: summarizeInput(name, safeJson(raw)), ...(files.length ? { files } : {}) }, safeJson(raw))];
         }
         if (p.type === 'function_call_output' || p.type === 'custom_tool_call_output') {
           let o = p.output;
           if (typeof o === 'string' && /^\s*\[/.test(o)) { try { o = JSON.parse(o); } catch {} }
           o = typeof o === 'string' ? o : (Array.isArray(o) ? textOf(o) : textOf(o?.content) || JSON.stringify(o || ''));
-          return [{ t, kind: 'tool_result', text: clip(o, 6000) }];
+          return [withDocs({ t, kind: 'tool_result', text: clip(o, 6000) }, o)];
         }
         return this.countUnknown(p.type, ['web_search_call', 'local_shell_call', 'local_shell_call_output', 'ghost_snapshot', 'agent_message', 'inter_agent_communication_metadata']);
       }
@@ -376,6 +376,26 @@ export function geminiArgs(args) {
   for (const k of ['targetfile', 'absolutepath', 'filepath', 'file']) if (out[k] != null && out.path == null) out.path = out[k];
   return out;
 }
+/**
+ * 도구 입력·결과 글에 나온 문서 이름들(PPT·워드·한/글·엑셀·PDF) — 있는 그대로(상대·절대). P18 2026-11-24:
+ * 문서는 「쓰기」 도구가 아니라 파이썬 명령·문서 MCP 로 만들어져 writtenFiles 로는 캔버스가 알 수 없었다.
+ * 실제로 있는지·그 뒤에 바뀌었는지는 캔버스가 /api/canvas/find 로 확인한다(여기서는 이름만).
+ */
+const DOC_EXT = '(?:pptx?|docx?|hwpx?|xlsx?|pdf)';
+const DOC_END = '(?![A-Za-z0-9_])';
+const DOC_QUOTED = new RegExp(`(["'\`])([^"'\`\\r\\n<>|*?]{1,240}?\\.${DOC_EXT})\\1`, 'gi');
+const DOC_ABS = new RegExp(`(?:[A-Za-z]:[\\\\/]|/[A-Za-z]/)[^"'\`\\r\\n<>|*?:]{1,240}?\\.${DOC_EXT}${DOC_END}`, 'gi');
+const DOC_BARE = new RegExp(`[^\\s"'\`<>|*?:=,;()\\[\\]{}]{1,200}\\.${DOC_EXT}${DOC_END}`, 'gi');
+export function docMentions(value, depth = 0) {
+  if (value == null || depth > 4) return [];
+  if (typeof value === 'object') return [...new Set(Object.values(value).slice(0, 60).flatMap((v) => docMentions(v, depth + 1)))].slice(0, 20);
+  if (typeof value !== 'string' || !/\.(?:ppt|doc|hwp|xls|pdf)/i.test(value)) return [];
+  const s = value.length > 200_000 ? value.slice(-200_000) : value; const out = [];
+  // 겹쳐 뽑아도 된다 - 따옴표 속 명령 전체가 이름으로 잡혀도 낱말 쪽에서 진짜 이름이 나오고, 없는 이름은 찾기에서 걸러진다
+  for (const [re, g] of [[DOC_QUOTED, 2], [DOC_ABS, 0], [DOC_BARE, 0]]) for (const m of s.matchAll(re)) out.push(m[g].replace(/\\\\/g, '\\').trim());
+  return [...new Set(out)].slice(0, 20);
+}
+const withDocs = (item, value) => { const docs = docMentions(value); return docs.length ? { ...item, docs } : item; };
 export function writtenFiles(name, input) {
   const out = [];
   if (/^(Write|Edit|MultiEdit|NotebookEdit|Create|Update|write_file|write_to_file|replace_file_content|multi_replace_file_content|edit_file|create_file)$/i.test(String(name)) && input && typeof input === 'object') {
