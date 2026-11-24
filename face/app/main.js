@@ -367,10 +367,11 @@
   // ---------- 세션 선택 / 새 요청 모드 ----------
   function select(id) { current = id; setupMode = 'new'; Canvas.onSession(id, sessions.find(x => x.id === id)?.cwd); ensureTerm(); render(); attach(id); SubPanel.onSession(id); if (mode === 'term') term.focus(); else $('#composer-text').focus(); }
   function goHome() { current = null; setupMode = 'new'; Canvas.onSession(null); send({ type: 'detach' }); SubPanel.onSession(null); Transcript.clear(); Approval.render(null); render(); $('#composer-text').focus(); }
+  let revealTo = null; // 지난 대화 검색에서 고른 자리 { id, i }
   function attach(id) { send({ type: 'attach', id }); setTimeout(doFit, 50); loadTranscript(id); }
   async function loadTranscript(id) {
     Transcript.clear(); $('#vh-usage').textContent = ''; $('#vh-mwarn').hidden = true; $('#activity').hidden = true;
-    try { const j = await api('GET', `/api/sessions/${id}/transcript`); if (id !== current) return; Transcript.render(j.items || [], j.meta); Transcript.setBusy(cur()?.status === 'busy'); afterTranscript(j.meta); Canvas.onItems(id, j.items || [], true, cur()?.cwd); } catch (e) { console.warn('transcript', e); }
+    try { const j = await api('GET', `/api/sessions/${id}/transcript`); if (id !== current) return; Transcript.render(j.items || [], j.meta); if (revealTo?.id === id) { const r = revealTo; revealTo = null; requestAnimationFrame(() => Transcript.reveal(r.i)); } Transcript.setBusy(cur()?.status === 'busy'); afterTranscript(j.meta); Canvas.onItems(id, j.items || [], true, cur()?.cwd); } catch (e) { console.warn('transcript', e); }
   }
   // 컨텍스트 사용률 = 마지막 요청의 입력 토큰 ÷ 컨텍스트 창(코덱스는 기록값, 클로드는 모델 추정)
   // 🔴 모델 이름 = 실제 모델(v2.102, 사용자 지정): 세션 기록의 실제 응답 모델이 고른 모델과 다르면 머리에 경고.
@@ -640,13 +641,20 @@
   ta.addEventListener('input', autoGrow);
   function autoGrow() { ta.style.height = 'auto'; ta.style.height = Math.min(190, ta.scrollHeight) + 'px'; }
   async function submit() {
-    const typed = ta.value.replace(/\r\n/g, '\n').trim();
-    const text = withAttachments(typed); if (!text.trim()) return;
+    let typed = ta.value.replace(/\r\n/g, '\n').trim();
+    let text = withAttachments(typed); if (!text.trim()) return;
     const btn = $('#btn-send'); if (btn.disabled) return;
     const s = cur();
     // 공유 계정 내 몫(P18 — 사용자 결정: 계정 사용률 ÷ 인원, 넘으면 보내기 전 확인 · 막지 않음)
     const ms = LocalUse.status(s?.agent || currentSel().agent);
     if (ms.over && !(await Dialog.confirm('', { title: '내 몫을 넘었어요', html: `<p>이 계정을 <b>${LocalUse.people()}명</b>이 나눠 쓰고 있어요. 한 사람 몫은 한도의 ${LocalUse.P(ms.quota)}인데, 이 PC 는 주간 <b>${LocalUse.P(ms.s.mineWeek)}</b> · 5시간 <b>${LocalUse.P(ms.s.mine5h)}</b>를 썼어요.</p><p>더 쓰면 다른 선생님들이 쓸 양이 줄어듭니다. 그래도 보낼까요?</p>`, okLabel: '그래도 보내기' }))) return;
+    // 개인정보 확인(P18 2026-11-24 사용자 선택 4번): 글만 이 화면에서 검사, 막지 않고 고르게 — 가린 글은 요청문·이력 모두 가린 채로
+    if (Settings.get().privacyCheck !== false) {
+      btn.disabled = true; let safe; try { safe = await PrivacyCheck.check(typed); } finally { btn.disabled = false; }
+      if (safe == null) { ta.focus(); return; }
+      if (safe !== typed) { typed = safe; text = withAttachments(typed); }
+      if (cur()?.id !== s?.id) return; // 확인하는 사이 다른 대화로 옮겼으면 보내지 않는다
+    }
     try {
       btn.disabled = true; btn.classList.add('busy');
       History.push(typed);
@@ -909,6 +917,8 @@
   function onEscape() {
     const now = Date.now(); if (now - lastEscAt < 300) return; lastEscAt = now;
     if (renaming) { renaming.cancel(); return; }      // 이름 고치는 중 Esc = 고치기 취소만(작업 중단 아님, v2.85)
+    if (Dialog.ownsEscape()) return;                   // 확인 창을 닫는 Esc 는 그 창의 것(작업 중단으로 새지 않게, P18 2026-11-24)
+    if (Search.close()) return;                        // 지난 대화 검색 = 닫기만
     if (DocView.escape()) return;                      // 슬라이드 전체 화면 = Esc 로 닫기만(작업 중단 아님, P18 2026-11-24)
     if (RowMenu.close()) return;                       // 줄 메뉴(⋯)가 떠 있으면 Esc = 메뉴만 닫기(P18 2026-11-19)
     if (TeamPop.close()) return;                       // 「계정 공유」 작은 창이 떠 있으면 Esc = 창만 닫기(P18 2026-11-20)
@@ -952,6 +962,12 @@
     folder = { path: p, rel, name };
     if (AGENTS[agent] && sel.agent !== agent) { sel.agent = agent; saveSel(); renderSetup(); }
     render(); const ta2 = $('#composer-text'); ta2.value = text; ta2.dispatchEvent(new Event('input', { bubbles: true })); ta2.focus(); ta2.setSelectionRange(ta2.value.length, ta2.value.length);
+  } });
+  Search.init({ headers: () => Profile.headers(), onPick: (id, i) => {
+    if (!sessions.some((x) => x.id === id)) return Dialog.alert('이 대화는 목록에서 지워졌어요.');
+    if (Settings.isOpen()) Settings.hide(); closeDrawer(); setMode('chat');
+    if (id === current) { if (i != null) Transcript.reveal(i); return; }
+    revealTo = i != null ? { id, i } : null; select(id);
   } });
   Canvas.init({ composer: $('#composer-text') }); // 캔버스(P18) — AI 가 만드는 파일을 대화 옆에서 실시간으로
   // 개인 공간(P18): 잠긴 세션은 목록에서 빼고 개수만 칩에. 공간이 바뀌면 통로에 새 열쇠를 알리고, 지금 보던 세션이 남의 것이 되면 홈으로.

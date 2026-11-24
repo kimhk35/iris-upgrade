@@ -12,34 +12,36 @@ window.Dialog = (() => {
     let el = $('#dlg');
     if (el) return el;
     el = document.createElement('div'); el.id = 'dlg'; el.className = 'dlg'; el.hidden = true;
-    el.innerHTML = `<div class="dlg-box" role="dialog" aria-modal="true" aria-labelledby="dlg-msg"><div id="dlg-title" class="dlg-title" hidden></div><div id="dlg-msg" class="dlg-msg"></div><div class="dlg-actions"><button id="dlg-cancel" class="text-btn">취소</button><button id="dlg-ok" class="text-btn accent">확인</button></div></div>`;
+    el.innerHTML = `<div class="dlg-box" role="dialog" aria-modal="true" aria-labelledby="dlg-msg"><div id="dlg-title" class="dlg-title" hidden></div><div id="dlg-msg" class="dlg-msg"></div><div class="dlg-actions"><button id="dlg-cancel" class="text-btn">취소</button><button id="dlg-extra" class="text-btn" hidden></button><button id="dlg-ok" class="text-btn accent">확인</button></div></div>`;
     document.body.appendChild(el);
     return el;
   }
-  function open({ message, html, title, confirm, okLabel, cancelLabel, danger, wide }) {
+  let closedAt = 0; // 방금 Esc 로 닫은 시각 — Electron 이 같은 Esc 를 한 번 더 중계해 AI 작업을 멈추지 않게(P18 2026-11-24)
+  function open({ message, html, title, confirm, okLabel, extraLabel, cancelLabel, danger, wide }) {
     const el = build(); const prev = document.activeElement;
     return new Promise((resolve) => {
       // html 은 우리 코드가 만든 신뢰 문자열만(사용자·세션 출력은 message 로). info() 전용.
       if (html != null) $('#dlg-msg').innerHTML = html; else $('#dlg-msg').textContent = String(message ?? '');
       const tt = $('#dlg-title'); tt.textContent = title || ''; tt.hidden = !title;
       el.querySelector('.dlg-box').classList.toggle('wide', !!wide);
-      const ok = $('#dlg-ok'), cancel = $('#dlg-cancel');
+      const ok = $('#dlg-ok'), cancel = $('#dlg-cancel'), extra = $('#dlg-extra');
+      extra.hidden = !extraLabel; extra.textContent = extraLabel || '';
       ok.textContent = okLabel || '확인'; cancel.textContent = cancelLabel || '취소';
       cancel.hidden = !confirm; ok.classList.toggle('danger', !!danger);
       el.hidden = false;
       const done = (v) => {
-        el.hidden = true; document.removeEventListener('keydown', onKey, true); ok.onclick = cancel.onclick = null; el.onclick = null;
+        el.hidden = true; document.removeEventListener('keydown', onKey, true); ok.onclick = cancel.onclick = extra.onclick = null; el.onclick = null;
         // 초점을 원래 자리로(입력창 등) — 창의 OS 초점은 잃은 적이 없으므로 이걸로 충분하다
         try { (prev && prev.isConnected ? prev : $('#composer-text'))?.focus(); } catch {}
         resolve(v);
       };
       const onKey = (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); done(true); }
-        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(!confirm ? true : false); }
-        else if (e.key === 'Tab') { e.preventDefault(); (document.activeElement === ok && confirm ? cancel : ok).focus(); }
+        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); const a = document.activeElement; done(confirm && a === cancel ? false : extraLabel && a === extra ? 'extra' : true); }
+        else if (e.key === 'Escape') { closedAt = Date.now(); e.preventDefault(); e.stopPropagation(); done(!confirm ? true : false); }
+        else if (e.key === 'Tab') { e.preventDefault(); const bs = [cancel, extra, ok].filter((b) => !b.hidden), k = bs.indexOf(document.activeElement); bs[(k + (e.shiftKey ? -1 : 1) + bs.length) % bs.length].focus(); }
       };
       document.addEventListener('keydown', onKey, true);
-      ok.onclick = () => done(true); cancel.onclick = () => done(false);
+      ok.onclick = () => done(true); extra.onclick = () => done('extra'); cancel.onclick = () => done(false);
       el.onclick = (e) => { if (e.target === el && confirm) done(false); };
       ok.focus();
     });
@@ -47,8 +49,11 @@ window.Dialog = (() => {
   const run = (opts) => { const p = queue.then(() => open(opts)); queue = p.catch(() => {}); return p; };
   const alert = (message) => run({ message, confirm: false });
   const confirm = (message, opts = {}) => run({ message, confirm: true, ...opts });
+  /** 단추 셋(확인·다른 선택·취소) → 'ok' | 'extra' | 'cancel'. html 은 우리 코드가 만든 신뢰 문자열만. */
+  const choose = (opts) => run({ confirm: true, ...opts }).then((v) => (v === 'extra' ? 'extra' : v ? 'ok' : 'cancel'));
   /** 제목 + 여러 줄 본문(우리 코드가 만든 HTML)을 보여 주는 정보창. 예: 정보(만든 사람) 대화상자. */
   const info = ({ title, html, okLabel, wide }) => run({ title, html, okLabel: okLabel || '닫기', confirm: false, wide });
   window.alert = (m) => { alert(m); }; // 네이티브 alert 봉인(초점 상실 방지). 반환값을 기다리는 코드는 Dialog.alert 을 쓸 것
-  return { alert, confirm, info, isOpen: () => { const el = $('#dlg'); return !!el && !el.hidden; } };
+  const isOpen = () => { const el = $('#dlg'); return !!el && !el.hidden; };
+  return { alert, confirm, choose, info, isOpen, ownsEscape: () => isOpen() || Date.now() - closedAt < 600 };
 })();

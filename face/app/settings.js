@@ -8,7 +8,7 @@ window.Settings = (() => {
   const BRAND = { name: 'IRIS', mark: 'cube', font: 'segoe-script', markSpeed: 2 }; // 고정 정체성 — 설정에서 바꿀 수 없다
   // 권한 기본값(2026-09-14 사용자 결정): 새 설치는 처음부터 최대 권한 — Claude 「전부 허용」, Codex 「묻지 않음」+「전체 접근」. 저장된 설정이 있으면 그 값이 우선.
   // intro = 켤 때마다 시작 인트로(P18, 2026-11-10 사용자 결정) · math = 수학 무대 값(속도·수식 표시·무대별 모양 값 — 표는 stars.js IRIS_MATH)
-  const DEF = { theme: 'indigo', stage: 'sphere', density: 1, pauseWhenDim: true, intro: true, sharePeople: 1, math: { speed: 1, formula: true, params: {} }, permission: 'bypassPermissions', approval: 'never', sandbox: 'danger-full-access', notifyDone: true, notifyOs: true }; // pauseWhenDim 기본 켬(2026-09-12 발열 사건): 저장된 설정이 있으면 그 값이 우선
+  const DEF = { theme: 'indigo', stage: 'sphere', density: 1, pauseWhenDim: true, intro: true, sharePeople: 1, privacyCheck: true, math: { speed: 1, formula: true, params: {} }, permission: 'bypassPermissions', approval: 'never', sandbox: 'danger-full-access', notifyDone: true, notifyOs: true }; // pauseWhenDim 기본 켬(2026-09-12 발열 사건): 저장된 설정이 있으면 그 값이 우선
   let cfg = { ...DEF }, health = null, open = false, themeKeys = new Set(), agents = null, previews = [], opts = {};
   const destroyPreviews = () => { for (const p of previews) { try { p.destroy(); } catch {} } previews = []; };
 
@@ -123,7 +123,7 @@ window.Settings = (() => {
       + (maths.length ? `<div class="st-sublabel">수학<small>고르면 아래에서 모양·속도를 조절할 수 있어요</small></div><div class="st-list">${maths.map(card).join('')}</div>` : '');
     renderMath();
     startPreviews();
-    $('#st-intro').checked = cfg.intro !== false;
+    $('#st-intro').checked = cfg.intro !== false; $('#st-privacy').checked = cfg.privacyCheck !== false;
     $('#st-people').value = Math.max(1, Number(cfg.sharePeople) || 1);
     $('#st-density').value = cfg.density; $('#st-density-v').textContent = Math.round(cfg.density * 100) + '%';
     renderStage(IrisStars.status());
@@ -506,6 +506,7 @@ window.Settings = (() => {
     $('#st-density').addEventListener('change', save);
     $('#st-math').addEventListener('input', onMathInput);
     $('#st-math').addEventListener('change', (e) => { if (e.target.id === 'st-math-f') { cfg.math = { ...cfg.math, formula: e.target.checked }; applyStage(); } save(); });
+    $('#st-privacy').addEventListener('change', (e) => pick({ privacyCheck: e.target.checked }));
     $('#st-intro').addEventListener('change', (e) => pick({ intro: e.target.checked }));
     $('#st-people').addEventListener('change', (e) => setSharePeople(e.target.value));
     $('#st-people').addEventListener('keydown', (e) => e.stopPropagation());

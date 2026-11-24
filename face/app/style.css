@@ -1067,6 +1067,29 @@ button.tl-pill[aria-pressed="true"] { border-color: var(--iris); background: var
 .dv-full { position: fixed; inset: 0; z-index: 9999; background: #000; display: grid; place-items: center; outline: none; cursor: default; }
 .dv-full img { max-width: 100vw; max-height: 100vh; width: 100vw; height: 100vh; object-fit: contain; }
 .dv-fno, .dv-ftip { position: absolute; bottom: 12px; font-size: 12px; color: rgba(255,255,255,.55); } .dv-fno { right: 16px; } .dv-ftip { left: 16px; }
+/* 눌러서 고르기 · 대화 속 문서 · 지난 대화 검색 · 개인정보 확인(P18 2026-11-24) */
+.dv-slide, .dv-page { position: relative; }
+.dv-pick { position: absolute; border: 2px solid var(--iris); background: color-mix(in srgb, var(--iris) 16%, transparent); border-radius: 4px; pointer-events: none; }
+.canvas .dv-slide img, .canvas .dv-page img { cursor: crosshair; }
+.embed.doc .dv-embed { position: relative; height: 640px; border: 1px solid var(--line-2); border-radius: 10px; overflow: hidden; background: var(--base); }
+.embed.doc .dv-embed.slides { height: 440px; }
+.embed.doc .dv-embed iframe { height: 100%; border: 0; }
+.embed.doc.off .dv-embed { height: auto; border: 0; background: none; display: flex; align-items: center; gap: 8px; }
+.srch { position: fixed; inset: 0; z-index: 35; background: rgba(0,0,0,.4); display: grid; justify-items: center; align-items: start; padding: 9vh 16px 16px; }
+.srch[hidden] { display: none; }
+.srch-box { width: min(680px, 100%); max-height: 80vh; display: flex; flex-direction: column; background: var(--overlay); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.4); overflow: hidden; }
+.srch-top { display: flex; gap: 8px; padding: 12px 12px 8px; }
+.srch-in { flex: 1; min-width: 0; font: 15px var(--sans); color: var(--ink); background: var(--base); border: 1px solid var(--line-2); border-radius: 9px; padding: 9px 12px; } .srch-in:focus { outline: none; border-color: var(--iris); }
+.srch-ag { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 12px 10px; border-bottom: 1px solid var(--line); } .srch-n { margin-left: auto; font-size: 12px; color: var(--ink-3); }
+.srch-list { overflow-y: auto; padding: 6px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.srch-s { padding: 4px 0 8px; } .srch-s + .srch-s { border-top: 1px solid var(--line); }
+.srch-t, .srch-h { display: block; width: 100%; text-align: left; padding: 7px 10px; border-radius: 8px; color: var(--ink); } .srch-t:hover, .srch-h:hover, .srch-t:focus-visible, .srch-h:focus-visible { background: var(--iris-soft); outline: none; }
+.srch-t b { font-size: 13.5px; font-weight: 600; } .srch-t small { display: block; font-size: 11.5px; color: var(--ink-3); }
+.srch-h { display: flex; gap: 9px; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); } .srch-h i { flex: none; width: 22px; font-style: normal; font-size: 11px; color: var(--ink-3); padding-top: 1px; } .srch-h span { min-width: 0; overflow-wrap: anywhere; }
+.srch mark { background: #ffd27a; color: #2a1c00; border-radius: 3px; padding: 0 1px; }
+.srch-empty, .srch-more { margin: 0; padding: 14px 12px; font-size: 12.5px; color: var(--ink-3); } .srch-more { padding: 2px 12px 2px 41px; font-size: 11.5px; }
+.found { animation: srchFound 3.2s ease-out; border-radius: 10px; } @keyframes srchFound { 0%, 55% { box-shadow: 0 0 0 2px var(--iris); } 100% { box-shadow: 0 0 0 2px transparent; } }
+.pv-list { list-style: none; margin: 8px 0 0; padding: 0; white-space: normal; } .pv-list li { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); } .pv-list span { font-size: 12px; color: var(--ink-3); } .pv-list b { font-weight: 600; overflow-wrap: anywhere; } .pv-list i { font-style: normal; font-size: 12.5px; color: var(--ink-2); }
 .cv-work { animation: none !important; opacity: 1; }
 .cv-wait { position: absolute; inset: 0; display: grid; place-items: center; background: var(--base); }
 .cv-note { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px; background: var(--raised); }

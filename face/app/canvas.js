@@ -181,11 +181,22 @@ window.Canvas = (() => {
     host.querySelector('.cv-tabs').innerHTML = st.files.length
       ? st.files.map((f) => `<button type="button" role="tab" class="cv-tab${f.path === st.cur ? ' cur' : ''}${f.unseen ? ' new' : ''}" data-cvfile="${esc(f.path)}" title="${esc(f.path)}">${esc(base(f.path))}</button>`).join('')
       : '';
-    host.querySelector('.cv-go').textContent = kind === 'html' ? '이 부분 고쳐 줘' : '이 파일 고쳐 줘';
+    const inp = host.querySelector('.cv-pickin');
+    if (inp.dataset.for && inp.dataset.for !== st.cur) { if (inp.dataset.auto && inp.value.startsWith(inp.dataset.auto)) inp.value = ''; delete inp.dataset.auto; delete inp.dataset.for; delete inp.dataset.unit; }
+    inp.placeholder = kind === 'doc' ? (DocView.isSlides(st.cur) ? '슬라이드를 누르면 고칠 곳이 적혀요 · 직접 적어도 됩니다' : '고칠 곳을 누르면 몇 쪽인지 적혀요 · 직접 적어도 됩니다') : 'HTML 은 「고르기」를 켜고 미리보기를 누르세요 · 직접 적어도 됩니다';
+    goLabel();
     if (reload) { lastMtime = null; tries = 0; draw(); }
   }
   const asPdf = new Set(); // 「PDF로 보기」를 켠 문서
   let drawNo = 0, tries = 0, shown = null; // drawNo = 마지막 그리기 번호(늦게 끝난 앞 그리기를 버린다), shown = 지금 화면에 있는 문서
+  function goLabel() { const inp = host.querySelector('.cv-pickin'); host.querySelector('.cv-go').textContent = curKind() === 'html' ? '이 부분 고쳐 줘' : inp.dataset.auto ? (inp.dataset.unit === '쪽' ? '이 쪽 고쳐 줘' : '이 슬라이드 고쳐 줘') : '이 파일 고쳐 줘'; }
+  /** 문서에서 누른 곳 → 「고칠 곳」. 사용자가 뒤에 적은 말은 그대로 두고 앞의 자리만 바꾼다. 직접 적은 글(자리가 없는 글)은 지우지 않는다. */
+  function picked(p, k) {
+    if (p !== S()?.cur) return;
+    const inp = host.querySelector('.cv-pickin'), auto = inp.dataset.auto || '', v = inp.value;
+    const rest = auto && v.startsWith(auto) ? v.slice(auto.length) : v.trim() ? ` — ${v.trim()}` : '';
+    inp.value = k.label + rest; inp.dataset.auto = k.label; inp.dataset.for = p; inp.dataset.unit = k.unit === '쪽' ? '쪽' : '슬라이드'; goLabel();
+  }
   async function draw(mtime) {
     const no = ++drawNo; const view = host.querySelector('.cv-view'), st = S(), p = st?.cur, kind = curKind();
     if (kind !== 'doc') shown = null;
@@ -216,7 +227,7 @@ window.Canvas = (() => {
     let err = '', info = null;
     try { const r = await fetch(`${q}&pages=1`); const j = await r.json().catch(() => ({})); if (r.ok) info = j; else err = j.error || `오류 ${r.status}`; } catch { err = 'IRIS 와 연결이 끊겼어요. 잠시 뒤 다시 시도해 주세요.'; }
     if (!live()) return;
-    if (!err && info.n && !asPdf.has(p)) { shown = p; tries = 0; return DocView.mount(view, p, info); }
+    if (!err && info.n && !asPdf.has(p)) { shown = p; tries = 0; return DocView.mount(view, p, info, { onPick: (k) => picked(p, k) }); }
     if (!err) { shown = p; tries = 0; view.innerHTML = `<iframe class="cv-frame" data-born="${Date.now()}" src="${q}#navpanes=0&view=FitH" title="${esc(base(p))}"></iframe>`; return; }
     shown = null;
     view.innerHTML = `<div class="cv-empty cv-err"><b>${esc(base(p))}</b><span>${esc(err)}</span><span class="cv-errbtns"><button type="button" class="cv-chip" data-cv="retry">다시 시도</button><button type="button" class="cv-chip" data-cv="app">원본 열기</button></span></div>`;
@@ -253,13 +264,15 @@ window.Canvas = (() => {
   function ask() {
     const st = S(); if (!st?.cur || !composer) return;
     const inp = host.querySelector('.cv-pickin'), what = inp.value.trim();
-    const head = curKind() === 'html' && what
+    const auto = inp.dataset.for === st.cur && inp.dataset.auto && inp.value.startsWith(inp.dataset.auto) ? inp.dataset.auto : '';
+    const head = auto ? `[캔버스] ${st.cur} 의 ${auto} 부분을 이렇게 고쳐 줘: ${inp.value.slice(auto.length).replace(/^[\s—·:-]+/, '').trim()}`
+      : curKind() === 'html' && what
       ? `[캔버스] ${st.cur} 에서 「${what}」${inp.dataset.sel ? ` (위치: ${inp.dataset.sel})` : ''} 부분을 이렇게 고쳐 줘: `
       : `[캔버스] ${st.cur} 파일을 이렇게 고쳐 줘: ${what ? what + ' — ' : ''}`;
     composer.value = (composer.value.trim() ? composer.value.trimEnd() + '\n' : '') + head;
     composer.dispatchEvent(new Event('input', { bubbles: true }));
     composer.focus(); composer.setSelectionRange(composer.value.length, composer.value.length);
-    inp.value = ''; delete inp.dataset.sel;
+    inp.value = ''; delete inp.dataset.sel; delete inp.dataset.auto; delete inp.dataset.for; delete inp.dataset.unit; goLabel();
   }
 
   function init(o = {}) {

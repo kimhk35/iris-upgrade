@@ -111,11 +111,12 @@ function createTranscript() {
     for (const m of String(text || '').matchAll(HTML_RE)) { const p = normPath(m[0]); add('html', p.toLowerCase(), `<figure class="embed frame"><iframe src="${fileUrl(p)}" ${born()} loading="lazy" sandbox="allow-scripts allow-same-origin" title="${esc(p)}"></iframe><figcaption><code>${esc(p)}</code><button class="icon-btn small" data-open="${esc(p)}" title="새 창에서 열기">⧉</button></figcaption></figure>`); }
     for (const m of String(text || '').matchAll(DOC_RE)) {
       const p = normPath(m[0]); const isPdf = /\.pdf$/i.test(p);
-      const src = isPdf ? fileUrl(p) : docUrl(p);
-      const note = isPdf ? '' : '<span class="doc-note">PDF 미리보기로 변환</span>';
+      const src = fileUrl(p);
       // ⧉: PDF는 브라우저 새 창, 그 외 문서(한/글·오피스)는 브라우저가 못 여니 이 PC의 기본 앱으로 연다(/api/open)
       const open = isPdf ? `data-open="${esc(p)}" title="새 창에서 열기"` : `data-open-app="${esc(p)}" title="기본 앱으로 원본 열기"`;
-      add('doc', p.toLowerCase(), `<figure class="embed frame doc"><iframe src="${esc(src)}" ${born()} loading="lazy" title="${esc(p)}"></iframe><figcaption>${note}<code>${esc(p)}</code><button class="icon-btn small" ${open}>⧉</button></figcaption></figure>`);
+      // 한/글·워드·엑셀·PPT = 슬라이드·종이 보기(docview.js, 화면에 들어올 때 변환) / PDF = 그대로
+      const inner = isPdf ? `<iframe src="${esc(src)}" ${born()} loading="lazy" title="${esc(p)}"></iframe>` : '<div class="dv-embed"></div>';
+      add('doc', p.toLowerCase(), `<figure class="embed frame doc"${isPdf ? '' : ` data-docv="${esc(p)}"`}>${inner}<figcaption><code>${esc(p)}</code><button class="icon-btn small" ${open}>⧉</button></figcaption></figure>`);
     }
     // 로컬 주소는 바로 iframe으로 넣지 않는다 — 서버가 꺼져 있으면 하얀 상자만 남는다(2026-09-10 실측: 대화에 적힌 설계상 주소 :3459).
     // 자리표시자만 넣고, 화면에 붙은 뒤 probeUrl()이 살아 있는지 확인해 iframe 또는 '응답 없음' 한 줄로 바꾼다.
@@ -202,6 +203,7 @@ function createTranscript() {
   function pushStep(it) {
     if (!turn) root.appendChild(newTurn());
     const n = stepNode(it); if (!n) return;
+    if (it.i != null) n.dataset.i = it.i;
     turn.stepsList.appendChild(n); turn.count++;
     turn.steps.hidden = false;
     turn.all.querySelector('summary').textContent = `과정 ${turn.count}단계`;
@@ -322,7 +324,7 @@ function createTranscript() {
     root = el;
     root.addEventListener('scroll', () => { followBottom = root.scrollTop + root.clientHeight >= root.scrollHeight - 40; if (root.scrollTop < 60) showMore(); });
     // 새로 붙은 로컬 주소 자리표시자를 발견하는 즉시 생존 확인(innerHTML로 어디서 만들어지든 한 곳에서 처리).
-    new MutationObserver((muts) => { for (const m of muts) for (const n of m.addedNodes) { if (n.nodeType !== 1) continue; if (n.matches?.('figure[data-probe]')) probeUrl(n); else probeAll(n); } })
+    new MutationObserver((muts) => { for (const m of muts) for (const n of m.addedNodes) { if (n.nodeType !== 1) continue; if (n.matches?.('figure[data-probe]')) probeUrl(n); else probeAll(n); window.DocView?.watch(n); } })
       .observe(root, { childList: true, subtree: true });
     probeAll(root);
     root.addEventListener('click', (e) => {
@@ -410,6 +412,19 @@ function createTranscript() {
     root = saveRoot; turn = saveTurn; lastChips = saveChips; lastNotice = saveNotice; while (tmp.firstChild) frag.appendChild(tmp.firstChild);
     const prevH = root.scrollHeight; root.prepend(frag); shown += end - start; root.scrollTop += root.scrollHeight - prevH;
   }
+  /** 지난 대화 검색에서 고른 자리로(P18 2026-11-24): 앞쪽이 아직 안 그려졌으면 그려 가며 찾고, 접힌 과정 속이면 펼친다. */
+  function reveal(i) {
+    if (!root || i == null) return false;
+    const find = () => root.querySelector(`[data-i="${Number(i)}"]`);
+    while (!find() && shown < items.length) showMore();
+    let el = find();
+    if (!el) for (const x of root.querySelectorAll('[data-i]')) { if (Number(x.dataset.i) <= i) el = x; }
+    if (!el) return false;
+    for (let d = el.parentElement?.closest('details'); d; d = d.parentElement?.closest('details')) d.open = true;
+    followBottom = false; el.scrollIntoView({ block: 'center' }); followBottom = false;
+    el.classList.remove('found'); void el.offsetWidth; el.classList.add('found'); setTimeout(() => el.classList.remove('found'), 3200);
+    return true;
+  }
   function unknownBanner(meta) {
     const n = meta?.unknown || 0; if (n === unknownCount) return; unknownCount = n;
     let b = root.querySelector('.unknown-banner');
@@ -425,7 +440,7 @@ function createTranscript() {
     if (b) { turn.steps.classList.remove('settled'); if (turn.count === 0 || activity) { turn.steps.hidden = false; showLive(liveText()); } }
     else { settleTurn(); if (turn.count === 0) turn.steps.hidden = true; }
   }
-  return { mount, render, append, clear, prime, pend, md, setBusy, setSubagents, markSub, tick };
+  return { mount, render, append, reveal, clear, prime, pend, md, setBusy, setSubagents, markSub, tick };
 }
 // ---- 보조 작업 칩·서랍이 함께 쓰는 표기(2026-09-11) ----
 const SUB_STATUS_KO = { running: '작업 중', done: '완료', quiet: '조용함' };

@@ -20,7 +20,8 @@ import { findRoot, rootName, Settings } from './workspace.mjs';
 import { dashDir, dashPort, sweeperPath, pythonExe } from './paths.mjs';
 import { MemoryMonitor } from './memory.mjs';
 import { toPdf, isConvertible } from './doc2pdf.mjs';
-import { openPages, pageFile, pageHashes, sweepCache, ID_RE } from './docpages.mjs';
+import { openPages, pageFile, pageHashes, pageText, sweepCache, ID_RE } from './docpages.mjs';
+import { searchSessions } from './search.mjs';
 import { Voice } from './voice.mjs';
 import { activeAgentsMap, sleepingAgents, agentStatus, wake, SleepWatcher, KNOWN_AGENTS } from './wake.mjs';
 import { ModuleHost, NAME_RE } from './modules.mjs';
@@ -506,6 +507,12 @@ const server = http.createServer(async (req, res) => {
       else { mods.scan(); mods.start(name); log(`module restart ${name}`); }
       return json(res, 200, { ok: true, list: mods.list() });
     }
+    // 지난 대화 검색(P18 2026-11-24): 이미 읽어 둔 기록에서만, 이 화면이 볼 수 있는 대화만(잠긴 개인 공간 제외)
+    if (req.method === 'GET' && p === '/api/search') {
+      const pid = profileOf(req);
+      const list = sm.list().filter((r) => canSee(r, pid)).map((r) => { const rec = sm.get(r.id); const tl = tails.get(r.id) || pumpTail(rec); return { rec, items: tl?.items || [] }; });
+      return json(res, 200, searchSessions(list, (url.searchParams.get('q') || '').slice(0, 200), { agent: url.searchParams.get('agent') || '' }));
+    }
     if (req.method === 'GET' && p === '/api/sessions') return json(res, 200, listFor(profileOf(req)));
     // ---- 개인 공간(P18) ----
     if (req.method === 'GET' && p === '/api/profiles') return json(res, 200, { list: profiles.list(), me: profileOf(req) });
@@ -625,10 +632,11 @@ const server = http.createServer(async (req, res) => {
         return serveFile(res, pdf);
       } catch (e) { return fail(502, e.message); }
     }
-    if (req.method === 'GET' && (p === '/api/doc/page' || p === '/api/doc/hashes')) {
+    if (req.method === 'GET' && (p === '/api/doc/page' || p === '/api/doc/hashes' || p === '/api/doc/text')) {
       const id = url.searchParams.get('id') || ''; if (!ID_RE.test(id)) return json(res, 400, { error: 'id' });
       if (p === '/api/doc/hashes') { const hashes = await pageHashes(id); return hashes ? json(res, 200, { hashes }) : json(res, 404, { error: 'no pages' }); }
       const n = Number(url.searchParams.get('n')); if (!Number.isInteger(n) || n < 1 || n > 5000) return json(res, 400, { error: 'n' });
+      if (p === '/api/doc/text') return json(res, 200, { lines: await pageText(id, n) });
       const f = await pageFile(id, n); if (!f) return json(res, 404, { error: 'no page' });
       res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400, immutable' }); // id 는 내용 지문이라 바뀌지 않는다
       return fs.createReadStream(f).pipe(res);

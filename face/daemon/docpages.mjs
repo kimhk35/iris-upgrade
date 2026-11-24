@@ -57,6 +57,8 @@ export async function pageFile(id, n, waitMs = 60_000) {
   for (let t = 0; t < waitMs; t += 80) { if (fs.existsSync(f)) return f; if (job.ended) return fs.existsSync(f) ? f : null; await sleep(80); }
   return null;
 }
+/** 그 쪽의 글자 줄 [[왼쪽,위,오른쪽,아래, 글]] — 없으면 빈 목록. */
+export async function pageText(id, n) { return (await pageFile(id, n, 8000)) ? readJson(path.join(jobs.get(id).dir, `p${n}.json`)) || [] : []; }
 /** 쪽마다의 지문(다 그린 뒤) — 「바뀜」 표시용. 실패하면 null. */
 export async function pageHashes(id) {
   const job = jobs.get(id); if (!job) return null;
