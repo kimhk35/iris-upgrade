@@ -650,9 +650,10 @@
     if (ms.over && !(await Dialog.confirm('', { title: '내 몫을 넘었어요', html: `<p>이 계정을 <b>${LocalUse.people()}명</b>이 나눠 쓰고 있어요. 한 사람 몫은 한도의 ${LocalUse.P(ms.quota)}인데, 이 PC 는 주간 <b>${LocalUse.P(ms.s.mineWeek)}</b> · 5시간 <b>${LocalUse.P(ms.s.mine5h)}</b>를 썼어요.</p><p>더 쓰면 다른 선생님들이 쓸 양이 줄어듭니다. 그래도 보낼까요?</p>`, okLabel: '그래도 보내기' }))) return;
     // 개인정보 확인(P18 2026-11-24 사용자 선택 4번): 글만 이 화면에서 검사, 막지 않고 고르게 — 가린 글은 요청문·이력 모두 가린 채로
     if (Settings.get().privacyCheck !== false) {
-      btn.disabled = true; let safe; try { safe = await PrivacyCheck.check(typed); } finally { btn.disabled = false; }
+      btn.disabled = true; let safe; const busyTip = setTimeout(() => { $('#attach-list').insertAdjacentHTML('beforeend', '<span class="attach" id="pv-busy">첨부 살피는 중…</span>'); }, attachments.length ? 400 : 1e9);
+      try { safe = await PrivacyCheck.checkAll(typed, attachments.slice()); } catch (e) { Dialog.alert(e.message); return; } finally { clearTimeout(busyTip); $('#pv-busy')?.remove(); btn.disabled = false; }
       if (safe == null) { ta.focus(); return; }
-      if (safe !== typed) { typed = safe; text = withAttachments(typed); }
+      typed = safe.text; text = safe.paths.length ? `${typed}\n\n[첨부 파일]\n${safe.paths.join('\n')}` : typed;
       if (cur()?.id !== s?.id) return; // 확인하는 사이 다른 대화로 옮겼으면 보내지 않는다
     }
     try {
@@ -903,6 +904,7 @@
     if (e.ctrlKey && e.key.toLowerCase() === 'b') { e.preventDefault(); $('#btn-rail').click(); }
     if (e.ctrlKey && e.key.toLowerCase() === 'd') { e.preventDefault(); toggleDash(); }
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'm') { e.preventDefault(); const first = modules.find(x => x.catalog !== false) || modules[0]; if (first) modClick(first.name); } // 첫 카탈로그 모듈: 미설치 → 설치 확인 · 실행 중 → 서랍 · 멈춤 → 설정
+    if (e.ctrlKey && !e.altKey && ['=', '+', '-', '0'].includes(e.key) && Settings.fontStep) { e.preventDefault(); Settings.fontStep(e.key === '0' ? 0 : e.key === '-' ? -10 : 10); } // 글자 크기
     if (e.ctrlKey && e.key === ',') { e.preventDefault(); Settings.isOpen() ? Settings.hide() : Settings.show(); }
     if (e.key === 'F2' && !e.ctrlKey && !e.altKey && !Settings.isOpen() && !FolderPicker.isOpen() && renameCurrentByKey()) { e.preventDefault(); return; }
     if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'm' && mode !== 'term') { e.preventDefault(); Voice.toggle(); }
@@ -918,6 +920,7 @@
     const now = Date.now(); if (now - lastEscAt < 300) return; lastEscAt = now;
     if (renaming) { renaming.cancel(); return; }      // 이름 고치는 중 Esc = 고치기 취소만(작업 중단 아님, v2.85)
     if (Dialog.ownsEscape()) return;                   // 확인 창을 닫는 Esc 는 그 창의 것(작업 중단으로 새지 않게, P18 2026-11-24)
+    if (Templates.close() || ChatExport.close()) return; // 서식함 · 내보내기 작은 창
     if (Search.close()) return;                        // 지난 대화 검색 = 닫기만
     if (DocView.escape()) return;                      // 슬라이드 전체 화면 = Esc 로 닫기만(작업 중단 아님, P18 2026-11-24)
     if (RowMenu.close()) return;                       // 줄 메뉴(⋯)가 떠 있으면 Esc = 메뉴만 닫기(P18 2026-11-19)
@@ -963,6 +966,8 @@
     if (AGENTS[agent] && sel.agent !== agent) { sel.agent = agent; saveSel(); renderSetup(); }
     render(); const ta2 = $('#composer-text'); ta2.value = text; ta2.dispatchEvent(new Event('input', { bubbles: true })); ta2.focus(); ta2.setSelectionRange(ta2.value.length, ta2.value.length);
   } });
+  Templates.init({ composer: $('#composer-text') });
+  ChatExport.init({ current: () => (cur() && !cur().locked ? cur() : null), headers: () => Profile.headers() });
   Search.init({ headers: () => Profile.headers(), onPick: (id, i) => {
     if (!sessions.some((x) => x.id === id)) return Dialog.alert('이 대화는 목록에서 지워졌어요.');
     if (Settings.isOpen()) Settings.hide(); closeDrawer(); setMode('chat');

@@ -43,6 +43,8 @@
       <div class="st-pane" data-pane="design">
         <div class="st-pane-h"><h2>디자인</h2></div>
         <!-- 헤더 이름·마크·글자체는 고정(v2.54, 2026-09-13 사용자 결정: 만든 사람의 정체성) — settings.js BRAND. -->
+        <section class="st-grp"><h3>글자 크기</h3>
+          <div class="st-opt"><span class="st-opt-text">화면 글자 크기<small>Ctrl 과 ＋ · － 로도 바꿉니다. Ctrl+0 은 처음 크기로</small></span><span class="st-line"><button class="text-btn outline" type="button" data-font="-10" aria-label="글자 작게">－</button><b id="st-font-v"></b><button class="text-btn outline" type="button" data-font="10" aria-label="글자 크게">＋</button><button class="text-btn outline" type="button" data-font="0">처음으로</button></span></div></section>
         <section class="st-grp"><h3>테마</h3><div id="st-themes" class="st-themes"></div></section>
         <section class="st-grp"><h3>중앙 애니메이션</h3><div id="st-stages"></div><div id="st-math" class="st-math" hidden></div>
           <div class="st-opt"><span class="st-opt-text">별의 양<small>많을수록 화려하지만 컴퓨터가 더 일합니다</small></span><span class="st-rng"><input id="st-density" type="range" min="0.3" max="1.6" step="0.1"><span id="st-density-v"></span></span></div>
@@ -93,7 +95,9 @@
         <section class="st-grp"><h3 class="st-h-row"><span>비밀 금고</span><button id="st-recovery" class="text-btn outline" type="button">복구 문구 보기</button></h3>
           <div class="st-opt"><span class="st-opt-text">복구 문구<small>세팅 때 창이 금고를 만들며 문구를 이 컴퓨터에 보관했습니다. USB로 옮기거나 다른 컴퓨터에서 열려면 그 전에 한 번 보고 종이에 적어 두세요(화면 창으로만 보입니다).</small></span></div></section>
         <section class="st-grp"><h3>개인정보 확인</h3>
-          <label class="st-opt"><span class="st-opt-text">보내기 전에 개인정보 확인<small>전화번호·주민번호·학번과 이름·이메일 모양이 있으면 보내기 전에 알려 주고 가릴 수 있어요. 이 컴퓨터 안에서만 검사합니다. 첨부한 파일 속과 터미널에 직접 친 글, 이름만 적힌 글은 알 수 없어요</small></span><input id="st-privacy" class="sw" type="checkbox"></label></section>
+          <label class="st-opt"><span class="st-opt-text">보내기 전에 개인정보 확인<small>전화번호·주민번호·학번과 이름·이메일 모양이 있으면 보내기 전에 알려 주고 가릴 수 있어요. 첨부한 한글·워드·엑셀·PPT·PDF·글 파일 속도 봅니다. 이 컴퓨터 안에서만 검사합니다. 사진·스캔 속 글자와 터미널에 직접 친 글, 이름만 적힌 글은 알 수 없어요</small></span><input id="st-privacy" class="sw" type="checkbox"></label></section>
+        <section class="st-grp"><h3 class="st-h-row"><span>문서 앞 판 보관</span><button id="st-docver-clear" class="text-btn outline" type="button">보관함 비우기</button></h3>
+          <label class="st-opt"><span class="st-opt-text">AI가 고치기 전 문서를 보관<small>요청이나 도구에 이름이 나온 PPT·워드·한글·엑셀의 사본을 이 컴퓨터에 남겨 캔버스에서 견주고 되돌립니다. 문서마다 최근 10판, 50MB 이하, 14일 뒤 지움(모두 합쳐 500MB까지)</small></span><input id="st-docver" class="sw" type="checkbox"></label></section>
         <!-- P18(2026-11-12 사용자 요청 「공유 계정에서 나만 보기」 조각 A): 구독 계정을 여러 선생님이 나눠 쓸 때 무엇이 보이고 무엇이 안 보이는지 -->
         <section class="st-grp st-share"><h3>구독 계정을 여럿이 나눠 쓸 때</h3>
           <div class="st-opt"><span class="st-opt-text"><span class="st-share-ok">IRIS 대화는 이 PC 안에만 남습니다</span><small>IRIS 에서 한 대화 기록·만든 파일은 이 컴퓨터에 저장되고, 구독 계정의 대화 목록(웹·앱)에는 남지 않습니다. 같은 계정을 쓰는 다른 선생님의 화면에 보이지 않습니다. (AI 가 답하려면 요청 글은 AI 회사 서버로 보내집니다.)</small></span></div>
@@ -166,6 +170,7 @@
           <button id="btn-mode-chat" class="seg-btn active">대화</button>
           <button id="btn-mode-term" class="seg-btn" title="Ctrl+T">터미널</button>
         </span>
+        <button id="btn-export" class="icon-btn" title="대화 내보내기" aria-label="대화 내보내기"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v10m0 0-3.5-3.5M12 14l3.5-3.5M5 16v3.5h14V16"/></svg></button>
         <button id="btn-copy-resume" class="icon-btn" title="다른 터미널에서 이어가는 명령 복사">⧉</button>
         <button id="btn-close" class="icon-btn danger" title="이 세션 종료(PID 기준)">✕</button>
       </div>
@@ -224,6 +229,7 @@
         <div class="composer-right">
           <span class="attach-btns">
             <button id="btn-tune" class="mini-btn" hidden title="조합 바꾸기 — 에이전트·모델·사고깊이를 바꿔 이 대화를 이어갑니다"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9M4 12h13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="15" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="9" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="19" cy="12" r="2" fill="none" stroke="currentColor" stroke-width="1.7"/></svg></button>
+            <button id="btn-tpl" class="mini-btn" title="자주 쓰는 요청" aria-haspopup="dialog" aria-expanded="false"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14 3.5V8.5h5M9 12.5h7M9 16h4.5"/></svg></button>
             <button id="btn-mic" class="mini-btn" title="음성 입력 — 클릭·Ctrl+M: 녹음 시작/정지 · Esc: 취소"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
             <button id="btn-cam" class="mini-btn" title="카메라로 찍어 첨부"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7H8l1.2-2h5.6L16 7h2.5A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/></svg></button>
             <button id="btn-photo" class="mini-btn" title="사진 첨부"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m5 17 4.5-5 3.5 4 2.5-3L19 17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="15.5" cy="9.5" r="1.3" fill="currentColor"/></svg></button>
@@ -271,7 +277,10 @@
 <script src="/app/tutorial.js"></script>
 <script src="/app/profile.js"></script>
 <script src="/app/docview.js"></script>
+<script src="/app/doccompare.js"></script>
 <script src="/app/privacy.js"></script>
+<script src="/app/templates.js"></script>
+<script src="/app/export.js"></script>
 <script src="/app/search.js"></script>
 <script src="/app/canvas.js"></script>
 <script src="/app/main.js"></script>

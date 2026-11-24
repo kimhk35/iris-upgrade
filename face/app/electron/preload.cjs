@@ -3,8 +3,9 @@
 // refocus: 페이지가 "사용자가 창을 눌렀는데도 document.hasFocus()가 false" 를 감지하면 부른다 → 메인이 창을 blur→focus 해서
 //   OS 키보드 초점을 되찾는다(네이티브 대화상자·다른 창 간섭 뒤 키 입력이 죽는 증상의 자가 복구, 2026-09-10).
 // onEscape: 메인이 before-input-event로 잡은 Esc를 받는다(초점이 미리보기 iframe 안이라 페이지 keydown이 안 올 때도 중단이 되게, 2026-09-10).
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 contextBridge.exposeInMainWorld('irisHost', {
+  zoom: (f) => { try { webFrame.setZoomFactor(Math.max(0.8, Math.min(1.6, Number(f) || 1))); return true; } catch { return false; } }, // 글자 크기(P18 2026-11-24)
   refocus: () => ipcRenderer.invoke('iris:refocus'),
   onEscape: (cb) => { ipcRenderer.on('iris:escape', () => { try { cb(); } catch {} }); },
   onAbout: (cb) => { ipcRenderer.on('iris:about', () => { try { cb(); } catch {} }); }, // 트레이 메뉴 "IRIS-Face 정보…" → 페이지의 정보 대화상자(2026-09-10 각인)

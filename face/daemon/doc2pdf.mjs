@@ -42,11 +42,12 @@ export function pyCandidates(kind) {
 }
 
 const appOf = (ext) => (/^\.hwpx?$/.test(ext) ? ['한/글', '이'] : /^\.(docx?|rtf|odt)$/.test(ext) ? ['워드', '가'] : /^\.(xls[xm]?|ods)$/.test(ext) ? ['엑셀', '이'] : ['파워포인트', '가']);
+const alsoOf = (ext) => (/^\.(xls[xm]?|ods)$/.test(ext) ? '(또는 한셀)' : /^\.(pptx?|odp)$/.test(ext) ? '(또는 한쇼)' : '');
 /** 변환 실패 이유를 쉬운 한국어로. code = doc2pdf.py 가 stderr 에 `[낱말]` 로 적는 것 또는 NOPY·TIMEOUT·FAIL */
 export function friendlyError(ext, code) {
   const [app, josa] = appOf(ext);
   if (code === 'NOPY') return '문서 변환 도구(파이썬)를 찾지 못했어요. IRIS 설치 파일을 다시 실행하면 채워집니다.';
-  if (code === 'NOAPP') return `이 PC에 ${app}${josa} 설치되어 있지 않아 미리보기를 만들 수 없어요.`;
+  if (code === 'NOAPP') return `이 PC에 ${app}${alsoOf(ext)}${alsoOf(ext) ? '이' : josa} 설치되어 있지 않아 미리보기를 만들 수 없어요.`;
   if (code === 'LOCKED') return '다른 프로그램이 이 파일을 쓰는 중이라 읽지 못했어요. 저장이 끝나거나 그 창을 닫은 뒤 다시 열어 주세요.';
   if (code === 'TIMEOUT') return `변환이 너무 오래 걸려 멈췄어요. ${app} 안내 창이 떠 있으면 닫고 다시 열어 주세요.`;
   return `${app}에서 이 문서를 바꾸지 못했어요. 파일이 아직 저장되는 중이거나 손상됐을 수 있어요.`;
@@ -68,7 +69,7 @@ const inflight = new Map(); // 같은 파일 동시 요청은 한 번만 변환
 
 // 변환은 한 번에 하나씩(오피스·한/글은 프로그램 하나를 나눠 써서 겹치면 서로 끈다) — 앞 일이 실패해도 다음 일은 돈다.
 let tail = Promise.resolve();
-const enqueue = (fn) => { const p = tail.then(fn, fn); tail = p.catch(() => {}); return p; };
+export const enqueue = (fn) => { const p = tail.then(fn, fn); tail = p.catch(() => {}); return p; };
 const TIMEOUT_MS = 180_000;
 
 /** 파이썬 하나로 한 번. → { code, err } (code 'ENOENT' = 실행 자체가 안 됨, 'TIMEOUT' = 시간 초과). py 가 배열이면 [실행파일, 스크립트] (시험용). */
@@ -110,7 +111,7 @@ export function toPdf(src, cacheDir, log = () => {}, opts = {}) {
       }
       err = r.err;
       if (r.code === 3 || r.code === 'ENOENT') continue; // 이 파이썬에는 모듈이 없거나 실행이 안 됨 → 다음 후보
-      code = r.code === 'TIMEOUT' ? 'TIMEOUT' : /\[(NOAPP|LOCKED)\]/.exec(r.err)?.[1] || 'FAIL';
+      code = r.code === 'TIMEOUT' ? 'TIMEOUT' : /\[(NOAPP|LOCKED|TIMEOUT)\]/.exec(r.err)?.[1] || 'FAIL';
       break;
     }
     try { fs.rmSync(part, { force: true }); } catch {}

@@ -60,6 +60,79 @@ def _dispatch(progid: str):
         raise
 
 
+def _pids(exe: str) -> set:
+    """지금 떠 있는 그 프로그램의 번호들(사용자가 쓰는 한쇼·한셀을 끄지 않으려고). 모르면 None."""
+    try:
+        import subprocess
+
+        r = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {exe}", "/FO", "CSV", "/NH"], capture_output=True, timeout=15, creationflags=0x08000000)
+        return {int(x.split(b'","')[1]) for x in r.stdout.splitlines() if x.lower().startswith(b'"' + exe.lower().encode())}
+    except Exception:
+        return None
+
+
+def _shown(pids: set) -> bool:
+    """그 프로그램들 가운데 화면에 보이는 창을 가진 것이 있나(= 사용자가 쓰는 중). 모르면 그렇다고 본다."""
+    try:
+        import win32gui
+        import win32process
+
+        hit = []
+
+        def cb(h, _):
+            if win32gui.IsWindowVisible(h) and win32process.GetWindowThreadProcessId(h)[1] in pids:
+                hit.append(h)
+
+        win32gui.EnumWindows(cb, None)
+        return bool(hit)
+    except Exception:
+        return True
+
+
+def _watchdog(pids: set, seconds: int = 120) -> None:
+    """이 변환이 띄운 한쇼·한셀이 멈추면 그 번호만 끄고 끝낸다(숨은 프로그램이 남지 않게)."""
+    import subprocess
+    import threading
+
+    def stop():
+        for p in pids:
+            subprocess.run(["taskkill", "/PID", str(p), "/T", "/F"], capture_output=True, creationflags=0x08000000)
+        _err("[TIMEOUT] 한컴 프로그램이 멈춤")
+        os._exit(1)
+
+    t = threading.Timer(seconds, stop)
+    t.daemon = True
+    t.start()
+
+
+def _office_or_hancom(ms: str, hc: str, exe: str):
+    """오피스가 없으면 한컴(한쇼·한셀)으로 → (앱, 한컴인가, 이미 떠 있었나). 둘 다 없으면 NoApp. (P18 2026-11-24 고도화 13번)"""
+    if os.environ.get("IRIS_DOC_HANCOM") != "1":  # 시험용: 1 이면 오피스를 건너뛴다
+        try:
+            return _dispatch(ms), False, False
+        except NoApp:
+            pass
+    import time
+
+    before = _pids(exe)
+    for _ in range(20):  # 앞 변환이 쓰던 숨은 프로그램이 꺼지는 중이면 기다린다(거기 붙으면 같이 멈춘다)
+        if not before or _shown(before):
+            break
+        time.sleep(0.5)
+        before = _pids(exe)
+    was = before is None or bool(before and _shown(before))  # 화면에 보이는 창 = 사용자가 쓰는 중
+    app = _dispatch(hc)
+    if not was:  # 우리가 띄운 것: 확인 창에 저절로 「확인」(사본을 읽기 전용으로 열 뿐이다) · 멈추면 그 번호만 끈다
+        mine = _pids(exe) or set()
+        if mine:
+            _watchdog(mine)
+        try:
+            app.SetMessageBoxMode(0x111111)
+        except Exception:
+            pass
+    return app, True, was
+
+
 # ---------------------------------------------------------------- 한/글 --------
 def _ensure_hwp_security() -> None:
     """한/글 보안승인모듈(FilePathChecker)을 HKCU 레지스트리에 선등록한다.
@@ -133,25 +206,33 @@ def _office_to_pdf(src: str, out: str, ext: str) -> None:
             finally:
                 app.Quit()
         elif ext in (".xls", ".xlsx", ".xlsm", ".ods"):
-            app = _dispatch("Excel.Application")
-            app.Visible = False
-            app.DisplayAlerts = False
-            app.AutomationSecurity = 3  # 매크로 실행 금지(P18)
+            app, hancom, was = _office_or_hancom("Excel.Application", "HCell.Application", "HCell.exe")
             try:
-                wb = app.Workbooks.Open(src, ReadOnly=True)
-                wb.ExportAsFixedFormat(0, out)  # 0 = xlTypePDF, 시트 전체
-                wb.Close(False)
+                app.Visible = False
+                app.DisplayAlerts = False
+                app.AutomationSecurity = 3  # 매크로 실행 금지(P18)
+            except Exception:
+                if not hancom:
+                    app.Quit()
+                    raise  # 엑셀에서는 매크로를 막지 못하면 열지 않는다
+            try:
+                wb = app.Workbooks.Open(src) if hancom else app.Workbooks.Open(src, ReadOnly=True)
+                try:
+                    wb.ExportAsFixedFormat(0, out)  # 0 = xlTypePDF, 시트 전체
+                finally:
+                    wb.Close(False)
             finally:
-                app.Quit()
+                if not (hancom and was):
+                    app.Quit()
         elif ext in (".ppt", ".pptx", ".odp"):
             # 파워포인트는 하나만 뜬다 — DispatchEx 도 사용자가 쓰던 창에 붙는다. 그래서 아래에서 함부로 끄지 않는다.
-            app = _dispatch("PowerPoint.Application")
+            app, hancom, was = _office_or_hancom("PowerPoint.Application", "HShow.Application", "HShow.exe")
             prev = None  # 사용자가 쓰던 창에 붙었을 수 있으니 매크로 설정은 끝나고 되돌린다
             try:
                 prev = app.AutomationSecurity
                 app.AutomationSecurity = 3  # 매크로 실행 금지(P18)
             except Exception:
-                pass  # 아주 옛 판 파워포인트는 이 속성이 없을 수 있다 — 변환은 계속
+                pass  # 아주 옛 판 파워포인트·한쇼는 이 속성이 없을 수 있다 — 변환은 계속
             try:
                 # msoTrue(-1)/msoFalse(0) — 차례: 파일, 읽기 전용, 제목 없음, 창
                 pres = app.Presentations.Open(src, -1, 0, 0)
@@ -164,7 +245,7 @@ def _office_to_pdf(src: str, out: str, ext: str) -> None:
                 try:
                     if prev is not None:
                         app.AutomationSecurity = prev
-                    if app.Presentations.Count == 0 and not app.Visible:
+                    if app.Presentations.Count == 0 and not (was if hancom else app.Visible):
                         app.Quit()
                 except Exception:
                     pass

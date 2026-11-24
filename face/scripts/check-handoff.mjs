@@ -296,7 +296,7 @@ const flowOf = (root, sm, over = {}) => new HandoffFlow({ root, stateDir: path.j
   ok(needsReinstall({ latestPackageVersion: '2.0.0', receipt: { schema: 2 } }) === false, 'reinstall: 영수증 schema 2 면 평소대로 업데이트');
   ok(needsReinstall({ latestPackageVersion: '1.4.5', receipt: { schema: 1 } }) === false, 'reinstall: 구조판이 아직 1.x 면 해당 없음');
   ok(REINSTALL_NOTE === '2.0은 설치 방식이 바뀌어 새로 설치합니다. 기존 자료는 그대로 두고 설치기를 실행하면 됩니다.', '안내 문구가 계약 그대로');
-  ok(REINSTALL_URL === 'https://iris-workspace.com/install.html', '홈페이지 링크가 계약 그대로');
+  ok(REINSTALL_URL === 'https://iris.mathmckay.kr', '홈페이지 링크가 계약 그대로');
 }
 
 // ---------- 7) relayReady(v2.89 함수 — v2.90 에선 자동 첫 인사 대신 튜토리얼 「첫 대화 해 보기」 전 확인 GET /api/relay/ready 에 쓴다) ----------

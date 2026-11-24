@@ -10,10 +10,11 @@ window.DocView = (() => {
   const isSlides = (p) => /\.(pptx?|odp)$/i.test(p);
 
   /** view 안에 그린다. 이미 같은 문서가 있으면 자리를 지킨 채 갈아 끼운다. */
-  function mount(view, p, info, { key = p, onPick = null } = {}) {
+  function mount(view, p, info, { key = p, onPick = null, onCompare = null } = {}) {
     const st = of(key); st.key = key; st.page = Math.max(1, Math.min(info.n, st.page));
     const box = document.createElement('div'); box.className = `dv ${isSlides(p) ? 'dv-slides' : 'dv-paper'}`; box.tabIndex = 0;
     if (isSlides(p)) slides(box, st, info, onPick); else paper(box, st, info, onPick);
+    if (onCompare) { const b = document.createElement('button'); b.type = 'button'; b.className = 'cv-chip dv-cmp'; b.textContent = '앞 판과 비교'; b.hidden = true; b.onclick = (e) => { e.stopPropagation(); onCompare(); }; box.querySelector('.dv-bar').appendChild(b); }
     // 보던 자리: 앞 화면의 목록 자리를 옮겨 온다
     const oldThumb = view.querySelector('.dv-thumbs')?.scrollTop || 0; const refocus = view.contains(document.activeElement);
     view.replaceChildren(box);
@@ -29,7 +30,7 @@ window.DocView = (() => {
     }).catch(() => {});
     mark(box, st);
   }
-  function mark(box, st) { for (const el of box.querySelectorAll('[data-dvpage]')) el.classList.toggle('chg', st.changed.has(Number(el.dataset.dvpage))); }
+  function mark(box, st) { const cb = box.querySelector('.dv-cmp'); if (cb) cb.hidden = !st.changed.size; for (const el of box.querySelectorAll('[data-dvpage]')) el.classList.toggle('chg', st.changed.has(Number(el.dataset.dvpage))); }
 
   /** 쪽 그림에서 누른 자리 → { page, text, where } 를 알리고 그 줄에 테두리. 글자가 없는 곳(그림)은 자리 이름으로. */
   const WHERE = [['왼쪽 위', '위쪽 가운데', '오른쪽 위'], ['왼쪽', '가운데', '오른쪽'], ['왼쪽 아래', '아래쪽 가운데', '오른쪽 아래']];

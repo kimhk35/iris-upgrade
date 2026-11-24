@@ -116,6 +116,7 @@ window.Canvas = (() => {
       <div class="cv-head"><span class="cv-t">캔버스</span><span class="cv-live" title="파일이 바뀌면 저절로 다시 그립니다">실시간</span><span class="cv-sp"></span>
         <button type="button" class="cv-chip" data-cv="follow" title="가장 최근에 쓴 파일로 자동 이동">따라가기</button>
         <button type="button" class="cv-chip" data-cv="pick" title="미리보기에서 고칠 곳을 눌러 고릅니다(HTML)">고르기</button>
+        <button type="button" class="cv-chip" data-cv="cmp" title="AI가 고치기 전 판과 견주고 되돌립니다" hidden>앞 판</button>
         <button type="button" class="cv-chip" data-cv="pdf" title="글자를 긁어 복사하거나 인쇄할 때" hidden>PDF로 보기</button>
         <button type="button" class="cv-chip" data-cv="app" title="이 PC의 프로그램(파워포인트·워드·한/글 등)으로 원본 열기" hidden>원본 열기</button>
         <button type="button" class="icon-btn" data-cv="ext" title="새 창에서 열기">⧉</button>
@@ -133,6 +134,7 @@ window.Canvas = (() => {
       if (a === 'follow') { st.follow = !st.follow; save(); return render(false); }
       if (a === 'pick') { pick = !pick; return render(true); }
       if (a === 'ext' && st?.cur) return window.open(curKind() === 'doc' ? `/api/doc?path=${encodeURIComponent(st.cur)}` : fsUrl(st.cur), '_blank');
+      if (a === 'cmp' && st?.cur) return compare();
       if (a === 'pdf' && st?.cur) { asPdf.has(st.cur) ? asPdf.delete(st.cur) : asPdf.add(st.cur); shown = null; return render(true); }
       if (a === 'app' && st?.cur) return void fetch('/api/open', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: st.cur }) });
       if (a === 'ask') return ask();
@@ -177,6 +179,7 @@ window.Canvas = (() => {
     const kind = curKind();
     const pb = host.querySelector('[data-cv="pick"]'); pb.hidden = kind !== 'html'; pb.classList.toggle('on', pick && kind === 'html');
     host.querySelector('[data-cv="app"]').hidden = kind !== 'doc';
+    if (kind !== 'doc') host.querySelector('[data-cv="cmp"]').hidden = true;
     const pd = host.querySelector('[data-cv="pdf"]'); pd.hidden = kind !== 'doc'; pd.classList.toggle('on', asPdf.has(st.cur));
     host.querySelector('.cv-tabs').innerHTML = st.files.length
       ? st.files.map((f) => `<button type="button" role="tab" class="cv-tab${f.path === st.cur ? ' cur' : ''}${f.unseen ? ' new' : ''}" data-cvfile="${esc(f.path)}" title="${esc(f.path)}">${esc(base(f.path))}</button>`).join('')
@@ -198,7 +201,7 @@ window.Canvas = (() => {
     inp.value = k.label + rest; inp.dataset.auto = k.label; inp.dataset.for = p; inp.dataset.unit = k.unit === '쪽' ? '쪽' : '슬라이드'; goLabel();
   }
   async function draw(mtime) {
-    const no = ++drawNo; const view = host.querySelector('.cv-view'), st = S(), p = st?.cur, kind = curKind();
+    const no = ++drawNo; DocCompare.stop(); host.querySelector('[data-cv="cmp"]').classList.remove('on'); const view = host.querySelector('.cv-view'), st = S(), p = st?.cur, kind = curKind();
     if (kind !== 'doc') shown = null;
     if (!p) { view.innerHTML = `<div class="cv-empty">AI 가 HTML·그림·PDF·한글·워드·코드 파일을 만들거나 고치면 여기에 바로 보입니다.</div>`; return; }
     // 그리기 전에 그 파일의 바뀜 시각을 재어 기준으로 삼는다 — 그린 뒤 첫 확인까지의 틈에 바뀐 것을 놓치지 않게(P18 검사에서 발견)
@@ -225,14 +228,22 @@ window.Canvas = (() => {
     else if (!view.querySelector('.cv-flash')) view.insertAdjacentHTML('beforeend', '<span class="cv-flash cv-work">새로 만드는 중…</span>');
     const q = `/api/doc?path=${encodeURIComponent(p)}&v=${Math.round(mtime || Date.now())}`;
     let err = '', info = null;
-    try { const r = await fetch(`${q}&pages=1`); const j = await r.json().catch(() => ({})); if (r.ok) info = j; else err = j.error || `오류 ${r.status}`; } catch { err = 'IRIS 와 연결이 끊겼어요. 잠시 뒤 다시 시도해 주세요.'; }
+    try { const r = await fetch(`${q}&pages=1&keep=1`); const j = await r.json().catch(() => ({})); if (r.ok) info = j; else err = j.error || `오류 ${r.status}`; } catch { err = 'IRIS 와 연결이 끊겼어요. 잠시 뒤 다시 시도해 주세요.'; }
     if (!live()) return;
-    if (!err && info.n && !asPdf.has(p)) { shown = p; tries = 0; return DocView.mount(view, p, info, { onPick: (k) => picked(p, k) }); }
+    if (!err) DocCompare.versions(p).then((l) => { if (p === S()?.cur) { const n = l.filter((x) => !x.cur).length, b = host.querySelector('[data-cv="cmp"]'); b.hidden = !n; b.textContent = `앞 판 ${n}`; } });
+    if (!err && info.n && !asPdf.has(p)) { shown = p; tries = 0; return DocView.mount(view, p, info, { onPick: (k) => picked(p, k), onCompare: () => compare() }); }
     if (!err) { shown = p; tries = 0; view.innerHTML = `<iframe class="cv-frame" data-born="${Date.now()}" src="${q}#navpanes=0&view=FitH" title="${esc(base(p))}"></iframe>`; return; }
     shown = null;
     view.innerHTML = `<div class="cv-empty cv-err"><b>${esc(base(p))}</b><span>${esc(err)}</span><span class="cv-errbtns"><button type="button" class="cv-chip" data-cv="retry">다시 시도</button><button type="button" class="cv-chip" data-cv="app">원본 열기</button></span></div>`;
     // 막 저장되는 중이던 파일은 저절로 다시(최대 5번)
     if (mtime && Date.now() - mtime < 60_000 && tries++ < 5) setTimeout(() => { if (live()) draw(); }, 4000);
+  }
+  /** 앞 판과 비교 — 닫거나 되돌리거나 파일이 또 바뀌면 원래 보기로. */
+  function compare() {
+    const st = S(), p = st?.cur; if (!p || curKind() !== 'doc') return;
+    const btn = host.querySelector('[data-cv="cmp"]'); if (btn.classList.contains('on')) { shown = null; return void draw(); }
+    ++drawNo; shown = null; btn.classList.add('on');
+    DocCompare.open(host.querySelector('.cv-view'), p, { page: DocView._state(p).page, onClose: () => { shown = null; draw(); }, onRestored: () => { shown = null; lastMtime = null; draw(); } });
   }
   // ── 실시간: 지금 탭의 바뀜 시각 ──
   async function check() {

@@ -24,14 +24,15 @@
   const PATH = /(?:[A-Za-z]:[\\/]|\\\\)[^\r\n"'<>|?*]+?\.[A-Za-z0-9]{1,5}(?![A-Za-z0-9])/g;
 
   /** 글 → 찾은 것들 [{ type, label, value, at, name?, to, inPath }] (앞에서부터, 겹치지 않게) */
-  function scan(text) {
+  function scan(text, students = new Map()) {
     const s = String(text || ''); const found = [];
-    const paths = [...s.matchAll(PATH)].map((m) => [m.index, m.index + m[0].length]);
-    const students = new Map();
+    const taken = new Set(); // 이미 찾은 글자 자리(겹치지 않게)
+    const paths = /[A-Za-z]:[\\/]|\\\\/.test(s) ? [...s.matchAll(PATH)].map((m) => [m.index, m.index + m[0].length]) : [];
     for (const r of RULES) for (const m of s.matchAll(r.re)) {
       if (r.ok && !r.ok(m)) continue;
       const at = m.index, end = at + m[0].length;
-      if (found.some((f) => at < f.end && end > f.at)) continue;
+      if (taken.has(at) || taken.has(end - 1)) continue;
+      for (let q = at; q < end; q++) taken.add(q);
       found.push({ type: r.type, label: r.label, value: m[0], at, end, name: r.name ? r.name(m) : undefined, rule: r, inPath: paths.some(([a, b]) => at >= a && end <= b) });
     }
     found.sort((a, b) => a.at - b.at);
@@ -42,31 +43,71 @@
     return found;
   }
   /** 찾은 것을 가린 글. 학번과 함께 나온 이름은 글의 다른 자리에서도 같은 [학생N] 으로. */
-  function mask(text, found = scan(text)) {
+  function mask(text, found = scan(text), { students = null } = {}) {
     let s = String(text || '');
     for (const f of [...found].filter((x) => !x.inPath).sort((a, b) => b.at - a.at)) s = s.slice(0, f.at) + f.to + s.slice(f.end);
-    const names = [...new Map(found.filter((x) => x.name && !x.inPath).map((x) => [x.name, x.to]))].sort((a, b) => b[0].length - a[0].length);
-    for (const [n, to] of names) {
+    const names = new Map([...(students ? [...students].filter(([n]) => /^[가-힣]{2,4}$/.test(n)) : []), ...found.filter((x) => x.name && !x.inPath).map((x) => [x.name, x.to])]);
+    if (names.size) {
+      const one = new RegExp(`(?<![가-힣])(${[...names.keys()].sort((a, b) => b.length - a.length).join('|')})${TAIL}`, 'g');
       const parts = []; let last = 0; // 경로 안은 건드리지 않는다
       for (const m of s.matchAll(PATH)) { parts.push([s.slice(last, m.index), true], [m[0], false]); last = m.index + m[0].length; }
       parts.push([s.slice(last), true]);
-      s = parts.map(([t, can]) => (can ? t.replace(new RegExp(`(?<![가-힣])${n}${TAIL}`, 'g'), to) : t)).join('');
+      s = parts.map(([t, can]) => (can ? t.replace(one, (m, n) => names.get(n)) : t)).join('');
     }
     return s;
   }
+  /** 이미 아는 학생 이름이 글에 나온 것들(경로 속은 뺌) */
+  function mentions(text, students) {
+    const ns = [...students.keys()].filter((n) => /^[가-힣]{2,4}$/.test(n)); if (!ns.length) return [];
+    return [...String(text).replace(PATH, ' ').matchAll(new RegExp(`(?<![가-힣])(${ns.sort((a, b) => b.length - a.length).join('|')})${TAIL}`, 'g'))].map((m) => m[1]);
+  }
   const allowed = new Set(); // 이 창에서 「그대로 보내기」를 고른 값은 다시 묻지 않는다
   /** 보내기 전 확인 → 보낼 글(가렸으면 바뀐 글) 또는 null(취소) */
-  async function check(text) {
-    const found = scan(text).filter((f) => !allowed.has(f.value)); if (!found.length) return text;
-    const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    const can = found.some((f) => !f.inPath); const list = found.slice(0, 8);
-    const rows = list.map((f) => `<li><span>${esc(f.label)}</span><b>${esc(f.value)}</b><i>${f.inPath ? '파일 이름 속 — 가리지 않음' : `→ ${esc(f.to)}`}</i></li>`).join('');
-    const r = await Dialog.choose({ title: `개인정보로 보이는 것이 ${found.length}개 있어요`, html: `<p>AI 회사 서버로 보내기 전에 확인해 주세요.</p><ul class="pv-list">${rows}</ul>${found.length > list.length ? `<p>그 밖에 ${found.length - list.length}개</p>` : ''}`, okLabel: can ? '가려서 보내기' : '그대로 보내기', extraLabel: can ? '그대로 보내기' : '', cancelLabel: '취소' });
-    if (r === 'cancel') return null;
-    if (r === 'extra' || !can) { for (const f of found) allowed.add(f.value); return text; }
-    return mask(text, scan(text).filter((f) => !allowed.has(f.value)));
+  async function check(text) { const r = await checkAll(text, []); return r ? r.text : null; }
+  /** 첨부 하나의 글자(데몬이 이 PC 에서 뽑음) — 같은 첨부는 한 번만 */
+  const read = new Map();
+  async function fileText(p) {
+    if (!read.has(p)) read.set(p, (async () => { try { const r = await fetch('/api/privacy/text', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: p }) }); return r.ok ? await r.json() : { kind: 'none', text: '' }; } catch { return { kind: 'none', text: '' }; } })());
+    return read.get(p);
   }
-  const api = { scan, mask, check };
+  async function upload(name, text) {
+    const r = await fetch('/api/upload', { method: 'POST', headers: { 'x-file-name': encodeURIComponent(name) }, body: new Blob(['\ufeff', text], { type: 'text/plain' }) });
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || '가린 사본을 만들지 못했어요.'); return j.path;
+  }
+  /** 글 + 첨부({name,path}) 확인 → { text, paths } 또는 null(취소). 가리면 첨부는 글자만 뽑아 가린 사본으로 바꾼다(원본·다른 첨부는 그대로). */
+  async function checkAll(text, files = []) {
+    const students = new Map(); const found = scan(text, students).filter((f) => !allowed.has(f.value));
+    const docs = []; const texts = [];
+    for (const f of files) {
+      if (allowed.has(`file:${f.path}`)) continue;
+      const t = await fileText(f.path); const hits = t.kind === 'text' ? scan(t.text, students) : [];
+      if (hits.length) docs.push({ f, text: t.text, hits, truncated: t.truncated });
+      else if (t.kind === 'text') { texts.push({ f, t }); if (t.truncated) docs.push({ f, unread: true, truncated: true }); }
+      else if (t.kind === 'none') docs.push({ f, unread: true });
+    }
+    // 다른 첨부·글에서 알게 된 학생 이름이 이름만 적혀 있는 첨부와 글(모두 훑은 뒤라 순서와 상관없다)
+    for (const { f, t } of texts) { const k = mentions(t.text, students); if (!k.length) continue; const i = docs.findIndex((d) => d.f === f); if (i >= 0) docs.splice(i, 1); docs.push({ f, text: t.text, hits: k.map(() => ({ label: '이름' })), truncated: t.truncated }); }
+    if (docs.some((d) => d.hits)) for (const n of new Set(mentions(text, students))) if (!found.some((x) => x.value.includes(n))) found.push({ type: 'student', label: '이름', value: n, to: students.get(n), inPath: false, nameOnly: true });
+    const bad = docs.filter((d) => d.hits);
+    if (!found.length && !bad.length) return { text, paths: files.map((f) => f.path) }; // 읽지 못한 파일만 있으면 귀찮게 묻지 않는다
+    const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const can = bad.length > 0 || found.some((f) => !f.inPath); const list = found.slice(0, 8);
+    const rows = list.map((f) => `<li><span>${esc(f.label)}</span><b>${esc(f.value)}</b><i>${f.inPath ? '파일 이름 속 — 가리지 않음' : `→ ${esc(f.to)}`}</i></li>`).join('');
+    const count = (hits) => Object.entries(hits.reduce((o, h) => ({ ...o, [h.label]: (o[h.label] || 0) + 1 }), {})).map(([k, n]) => `${k} ${n}`).join(' · ');
+    const frows = docs.map((d) => `<li class="pv-file"><b>${esc(d.f.name)}</b><i>${d.hits ? esc(count(d.hits)) : d.truncated ? '너무 길어 앞부분만 봤어요' : '읽지 못해 확인하지 못했어요'}</i></li>`).join('');
+    const r = await Dialog.choose({ title: bad.length && !found.length ? '첨부 파일에 개인정보로 보이는 것이 있어요' : `개인정보로 보이는 것이 ${found.length + bad.reduce((n, d) => n + d.hits.length, 0)}개 있어요`, html: `<p>AI 회사 서버로 보내기 전에 확인해 주세요.</p>${rows ? `<ul class="pv-list">${rows}</ul>` : ''}${found.length > list.length ? `<p>그 밖에 ${found.length - list.length}개</p>` : ''}${frows ? `<p class="pv-h">첨부 파일</p><ul class="pv-list">${frows}</ul>` : ''}${bad.length ? '<p class="pv-n">가려서 보내면 첨부는 글자만 뽑은 텍스트 사본으로 바뀌어요. 원본은 그대로예요.</p>' : ''}`, okLabel: can ? (bad.length ? '가린 사본으로 보내기' : '가려서 보내기') : '그대로 보내기', extraLabel: can ? '그대로 보내기' : '', cancelLabel: '취소' });
+    if (r === 'cancel') return null;
+    if (r === 'extra' || !can) { for (const f of found) allowed.add(f.value); for (const d of bad) allowed.add(`file:${d.f.path}`); return { text, paths: files.map((f) => f.path) }; }
+    const paths = []; let n = 0;
+    for (const f of files) {
+      const d = bad.find((x) => x.f === f); n++;
+      if (!d) { paths.push(f.path); continue; }
+      const body = mask(d.text, scan(d.text, students), { students }); const ext = (f.name.match(/\.[A-Za-z0-9]{1,5}$/) || [''])[0];
+      paths.push(await upload(`가린 첨부 ${n}.txt`, `[첨부 ${n}${ext} 에서 글자만 뽑아 이름·번호를 가린 사본${d.truncated ? ' · 길어서 앞부분만' : ''}]\n\n${body}`)); // 파일 이름에 든 이름도 안 나가게 새 이름
+    }
+    return { text: mask(text, scan(text, students).filter((f) => !allowed.has(f.value)), { students: new Map([...students].filter(([k]) => !allowed.has(k))) }), paths };
+  }
+  const api = { scan, mask, check, checkAll, forget: (p) => read.delete(p) };
   if (typeof window !== 'undefined') window.PrivacyCheck = api;
   if (typeof globalThis !== 'undefined') globalThis.__irisPrivacy = api; // 시험(scripts/check-privacy.mjs)
 })();

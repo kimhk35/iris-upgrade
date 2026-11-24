@@ -8,7 +8,7 @@ window.Settings = (() => {
   const BRAND = { name: 'IRIS', mark: 'cube', font: 'segoe-script', markSpeed: 2 }; // 고정 정체성 — 설정에서 바꿀 수 없다
   // 권한 기본값(2026-09-14 사용자 결정): 새 설치는 처음부터 최대 권한 — Claude 「전부 허용」, Codex 「묻지 않음」+「전체 접근」. 저장된 설정이 있으면 그 값이 우선.
   // intro = 켤 때마다 시작 인트로(P18, 2026-11-10 사용자 결정) · math = 수학 무대 값(속도·수식 표시·무대별 모양 값 — 표는 stars.js IRIS_MATH)
-  const DEF = { theme: 'indigo', stage: 'sphere', density: 1, pauseWhenDim: true, intro: true, sharePeople: 1, privacyCheck: true, math: { speed: 1, formula: true, params: {} }, permission: 'bypassPermissions', approval: 'never', sandbox: 'danger-full-access', notifyDone: true, notifyOs: true }; // pauseWhenDim 기본 켬(2026-09-12 발열 사건): 저장된 설정이 있으면 그 값이 우선
+  const DEF = { theme: 'indigo', stage: 'sphere', density: 1, pauseWhenDim: true, intro: true, sharePeople: 1, privacyCheck: true, docVersions: true, fontScale: 100, math: { speed: 1, formula: true, params: {} }, permission: 'bypassPermissions', approval: 'never', sandbox: 'danger-full-access', notifyDone: true, notifyOs: true }; // pauseWhenDim 기본 켬(2026-09-12 발열 사건): 저장된 설정이 있으면 그 값이 우선
   let cfg = { ...DEF }, health = null, open = false, themeKeys = new Set(), agents = null, previews = [], opts = {};
   const destroyPreviews = () => { for (const p of previews) { try { p.destroy(); } catch {} } previews = []; };
 
@@ -78,7 +78,7 @@ window.Settings = (() => {
     el.innerHTML = chips + note;
   }
   document.addEventListener('iris:stage', (e) => { if (open) renderStage(e.detail); });
-  function applyAll() { applyTheme(); applyMark(); applyFont(); applyName(); applyStage(); }
+  function applyAll() { applyFont(); applyTheme(); applyMark(); applyFont(); applyName(); applyStage(); }
 
   // ---- 배터리 = 현재 우선(왕관) 계정의 **남은 주간 잔량**(100 − 사용률) ----
   const left = (v) => v == null ? null : Math.max(0, Math.min(100, Math.round((1 - v) * 100)));
@@ -123,7 +123,7 @@ window.Settings = (() => {
       + (maths.length ? `<div class="st-sublabel">수학<small>고르면 아래에서 모양·속도를 조절할 수 있어요</small></div><div class="st-list">${maths.map(card).join('')}</div>` : '');
     renderMath();
     startPreviews();
-    $('#st-intro').checked = cfg.intro !== false; $('#st-privacy').checked = cfg.privacyCheck !== false;
+    $('#st-intro').checked = cfg.intro !== false; $('#st-privacy').checked = cfg.privacyCheck !== false; $('#st-docver').checked = cfg.docVersions !== false; $('#st-font-v').textContent = `${fontNow()}%`;
     $('#st-people').value = Math.max(1, Number(cfg.sharePeople) || 1);
     $('#st-density').value = cfg.density; $('#st-density-v').textContent = Math.round(cfg.density * 100) + '%';
     renderStage(IrisStars.status());
@@ -481,6 +481,11 @@ window.Settings = (() => {
   /** p = 열 묶음(없으면 마지막으로 본 묶음). 예: 헤더 모듈 버튼이 멈춘 모듈을 보여 줄 때 show('mods'). */
   function show(p) { if (!open) opts.onShow?.(); open = true; $('#settings').hidden = false; $('#btn-settings').classList.add('active'); if (PANES.includes(p)) pane = p; showPane(pane); renderPanel(); }
   function hide() { open = false; $('#settings').hidden = true; $('#btn-settings').classList.remove('active'); destroyPreviews(); }
+  // 글자 크기(P18 2026-11-24 2차 시안 5번): 80~160%. 앱 창 = 화면 배율(preload), 브라우저 모드 = CSS zoom
+  const fontNow = () => Math.max(80, Math.min(160, Math.round(Number(cfg.fontScale) || 100)));
+  let fontSet = 0;
+  function applyFont() { const v = fontNow(); if (v === fontSet) return; fontSet = v; if (!window.irisHost?.zoom?.(v / 100)) document.body.style.zoom = v === 100 ? '' : v / 100; }
+  function fontStep(d) { pick({ fontScale: d ? Math.max(80, Math.min(160, fontNow() + d)) : 100 }); }
   function pick(patch) { Object.assign(cfg, patch); applyAll(); save(); renderPanel(); }
   /** 계정 공유 사람 수(1~50) — 설정 칸과 머리줄 「계정 공유」 작은 창(main.js TeamPop)이 같은 길로 저장한다. */
   function setSharePeople(n) {
@@ -506,6 +511,9 @@ window.Settings = (() => {
     $('#st-density').addEventListener('change', save);
     $('#st-math').addEventListener('input', onMathInput);
     $('#st-math').addEventListener('change', (e) => { if (e.target.id === 'st-math-f') { cfg.math = { ...cfg.math, formula: e.target.checked }; applyStage(); } save(); });
+    $('#st-docver').addEventListener('change', (e) => pick({ docVersions: e.target.checked }));
+    $('#st-docver-clear').addEventListener('click', async () => { if (!(await Dialog.confirm('보관한 앞 판을 모두 지울까요? 원본 문서는 그대로예요.', { okLabel: '지우기', danger: true }))) return; try { const j = await (await fetch('/api/doc/versions-clear', { method: 'POST' })).json(); Dialog.alert(`문서 ${j.cleared || 0}개의 앞 판을 지웠어요.`); } catch { Dialog.alert('지우지 못했어요.'); } });
+    for (const b of document.querySelectorAll('[data-font]')) b.addEventListener('click', () => fontStep(Number(b.dataset.font)));
     $('#st-privacy').addEventListener('change', (e) => pick({ privacyCheck: e.target.checked }));
     $('#st-intro').addEventListener('change', (e) => pick({ intro: e.target.checked }));
     $('#st-people').addEventListener('change', (e) => setSharePeople(e.target.value));
@@ -550,5 +558,5 @@ window.Settings = (() => {
     fetch('/api/health').then(r => r.json()).then(async (h) => { health = h; applyMaker(); loadLimits(); await pullServer(); applyAll(); }).catch(() => {});
     loadLimits(); setInterval(loadLimits, 60000);
   }
-  return { init, show, hide, about, showPane, setSharePeople, pane: () => pane, isOpen: () => open, get: () => cfg, health: () => health, refreshModules: () => { if (open) renderMods(); }, installModule: (name) => modAct(name, 'install'), isInstalling: (name) => installing.has(name), onUpdate, setUpdate, showUpdateResult, setAuth, onAuth };
+  return { init, show, hide, about, showPane, setSharePeople, fontStep, pane: () => pane, isOpen: () => open, get: () => cfg, health: () => health, refreshModules: () => { if (open) renderMods(); }, installModule: (name) => modAct(name, 'install'), isInstalling: (name) => installing.has(name), onUpdate, setUpdate, showUpdateResult, setAuth, onAuth };
 })();

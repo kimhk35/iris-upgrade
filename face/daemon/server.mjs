@@ -12,7 +12,7 @@ import { titleFromPrompt } from './title.mjs';
 import { AGENTS, setModelRefresher, agyExe, AGY_HOME } from './agents.mjs';
 import { GeminiUsage } from './geminiusage.mjs';
 import { ModelCatalog } from './models.mjs';
-import { TranscriptTail } from './transcript.mjs';
+import { TranscriptTail, docMentions } from './transcript.mjs';
 import { SubagentWatcher } from './subagents.mjs';
 import { listFolders, checkFresh, RecentFolders } from './folders.mjs';
 import { readLimits } from './limits.mjs';
@@ -22,6 +22,10 @@ import { MemoryMonitor } from './memory.mjs';
 import { toPdf, isConvertible } from './doc2pdf.mjs';
 import { openPages, pageFile, pageHashes, pageText, sweepCache, ID_RE } from './docpages.mjs';
 import { searchSessions } from './search.mjs';
+import { DocVersions } from './docversions.mjs';
+import { extractText } from './doctext.mjs';
+import { Templates } from './templates.mjs';
+import { exportDoc } from './export.mjs';
 import { Voice } from './voice.mjs';
 import { activeAgentsMap, sleepingAgents, agentStatus, wake, SleepWatcher, KNOWN_AGENTS } from './wake.mjs';
 import { ModuleHost, NAME_RE } from './modules.mjs';
@@ -88,6 +92,8 @@ const sm = new SessionManager(STATE, {
 });
 const recent = new RecentFolders(STATE);
 const WS_ROOT = findRoot(ROOT); const settings = new Settings(STATE);
+const docVersions = new DocVersions({ dir: path.join(STATE, 'doc-versions'), log: (m) => log(m), enabled: () => settings.get()?.docVersions !== false });
+const templates = new Templates(path.join(STATE, 'templates.json'));
 // 도구 설치·제거(판 B, 2026-11-10 — docs\설계-도구화면-2026-11-10.md): 엄선 목록만, 세션과 같은 환경으로 공식 CLI 실행.
 // 살아 있는 세션 수 = 파일 삭제를 미루는 기준(세션이 지운 파일을 나중에 부르지 않게).
 // 이 PC 사용량(P18) — 구독 계정을 여러 PC 가 나눠 쓸 때 이 PC 몫을 보이게(기록 파일만 읽음)
@@ -188,7 +194,9 @@ function tailFor(rec) {
 function pumpTail(rec) {
   const tl = tailFor(rec); if (!tl) return null;
   tl.polledAt = Date.now();
+  const seen = tl.offset > 0; // 처음 읽는 옛 기록에서는 앞 판을 보관하지 않는다(지금 일어나는 일만)
   let items; try { items = tl.poll(); } catch { return tl; }
+  if (seen && !tl.reset) for (const it of items) { const names = it.kind === 'user' ? docMentions(it.text) : it.kind === 'tool' ? it.docs : null; if (names?.length) { try { docVersions.keepMentioned(rec.cwd, names, STATE); } catch {} } } // AI 가 고치기 전 판(docversions.mjs)
   syncTitle(rec, tl);
   if (tl.reset) { tl.reset = false; broadcast({ type: 'transcript', id: rec.id, reset: true, items: tl.items, meta: tailMeta(tl) }); return tl; }
   if (items.length) for (const c of clients) if (c.attached === rec.id) send(c, { type: 'transcript', id: rec.id, items, meta: tailMeta(tl) });
@@ -625,7 +633,9 @@ const server = http.createServer(async (req, res) => {
       if (!isConvertible(file)) return fail(403, '미리보기로 바꿀 수 없는 문서 형식이에요.');
       if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return fail(404, '이 자리에 파일이 없어요. 옮겼거나 이름이 바뀌었을 수 있어요.');
       try {
+        const before = fs.statSync(file).mtimeMs;
         const pdf = await toPdf(file, path.join(STATE, 'doc-cache'), log);
+        if (url.searchParams.get('keep') === '1' && fs.statSync(file).mtimeMs === before) docVersions.keep(file, pdf); // 캔버스가 본 판
         if (url.searchParams.get('pages') === '1') { // 쪽 그림 보기(docview.js). 그릴 수 없는 PC 면 pages 없이 → 화면이 PDF 로 보여 준다
           try { return json(res, 200, { ok: true, ...(await openPages(pdf, log)) }); } catch (e) { log(`docpages ${e.message}`); return json(res, 200, { ok: true }); }
         }
@@ -641,6 +651,29 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400, immutable' }); // id 는 내용 지문이라 바뀌지 않는다
       return fs.createReadStream(f).pipe(res);
     }
+    // ---- 앞 판 비교·되돌리기(docversions.mjs) ----
+    if (p === '/api/doc/versions' || p === '/api/doc/version' || p === '/api/doc/restore') {
+      const b = req.method === 'POST' ? await readBody(req) : null; const raw = String(b ? b.path : url.searchParams.get('path') || ''); const file = path.resolve(raw);
+      if (!/^[A-Za-z]:[\\/]/.test(raw) || /^[A-Za-z]:\\(windows|program files|program files \(x86\)|programdata)\\/i.test(file) || /[\\/]secrets[\\/]/i.test(file) || !isConvertible(file)) return json(res, 403, { error: '열 수 없는 자리입니다' });
+      if (req.method === 'GET' && p === '/api/doc/versions') return json(res, 200, { list: docVersions.list(file) });
+      if (req.method === 'GET' && p === '/api/doc/version') {
+        const x = docVersions.get(file, url.searchParams.get('v')); if (!x) return json(res, 404, { error: '이 판은 더 이상 보관되어 있지 않아요.' });
+        try { return json(res, 200, { ok: true, ...(await openPages(x.pdf || await toPdf(x.file, path.join(STATE, 'doc-cache'), log), log)) }); } catch (e) { return json(res, 502, { error: e.message }); }
+      }
+      if (req.method === 'POST' && p === '/api/doc/restore') { try { docVersions.restore(file, b.v); return json(res, 200, { ok: true }); } catch (e) { return json(res, 409, { error: e.message }); } }
+      return json(res, 405, { error: 'method' });
+    }
+    if (req.method === 'POST' && p === '/api/doc/versions-clear') return json(res, 200, { ok: true, cleared: docVersions.clear() });
+    // ---- 첨부 속 개인정보 확인: 첨부 보관 폴더의 파일만, 글자만 ----
+    if (req.method === 'POST' && p === '/api/privacy/text') {
+      const b = await readBody(req); const up = path.join(STATE, 'uploads'); let file; try { file = fs.realpathSync(String(b.path || '')); } catch { return json(res, 404, { error: '파일이 없습니다' }); }
+      if (!file.toLowerCase().startsWith(fs.realpathSync(up).toLowerCase() + path.sep)) return json(res, 403, { error: '첨부한 파일만 볼 수 있습니다' });
+      return json(res, 200, await extractText(file, { cacheDir: path.join(STATE, 'doc-cache'), log }));
+    }
+    // ---- 자주 쓰는 요청 서식함 · 대화 내보내기 ----
+    if (p === '/api/templates' && req.method === 'GET') return json(res, 200, { list: templates.get() });
+    if (p === '/api/templates' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, { list: templates.set(b.list) }); }
+    if (p === '/api/export' && req.method === 'POST') { const b = await readBody(req); try { return json(res, 200, await exportDoc({ title: b.title, html: b.html, format: b.format, log })); } catch (e) { log(`export: ${e.message}`); return json(res, 500, { error: e.message }); } }
     // 캔버스: 도구 글에 나온 문서 이름(transcript.mjs docMentions) → 실제 파일. 절대 경로 → 작업 폴더 기준 → 작업 폴더 아래에서 같은 이름(깊이 4·폴더 400개까지, 가장 최근 것).
     if (req.method === 'GET' && p === '/api/canvas/find') {
       const cwd = path.resolve(url.searchParams.get('cwd') || ''); const names = url.searchParams.getAll('name').slice(0, 40);
