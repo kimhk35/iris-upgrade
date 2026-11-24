@@ -94,6 +94,7 @@ tr:last-child td { border-bottom: 0; }
 /* 인쇄(PDF) = A4 */
 @page { size: A4; margin: 14mm 13mm 16mm; @bottom-center { content: counter(page); font: 10px 'Segoe UI', sans-serif; color: #9aa0ae; } }
 @page cover { margin: 0; @bottom-center { content: none; } }
+@media screen and (max-width: 700px) { .sheet { padding: 28px 20px; border-radius: 12px; } .toc ol { grid-template-columns: 1fr !important; } .two { grid-template-columns: 1fr; } table { font-size: 13px; } img { max-width: 100%; } }
 @media print {
   html, body { background: #fff; font-size: 13.2px; }
   .doc { max-width: none; padding: 0; margin: 0; }
@@ -321,7 +322,7 @@ tr:last-child td { border-bottom: 0; }
     <tr><th style="width:26%">보이는 것</th><th>뜻</th><th style="width:28%">눌렀을 때</th></tr>
     <tr><td><b>연결 점</b></td><td>초록 = IRIS 엔진과 잘 연결됨. 다른 색이면 잠시 끊긴 것(저절로 다시 붙어요)</td><td>—</td></tr>
     <tr><td><b>메모리 링 · %</b></td><td>바깥 고리 = PC 메모리 사용량. 많이 차면 노랑·빨강으로 바뀌어요</td><td>최근 30분 그래프 · 많이 차지하는 것</td></tr>
-    <tr><td><b>배터리</b></td><td>구독 계정별 남은 사용량(5시간·주간)</td><td>My Agent 대시보드</td></tr>
+    <tr><td><b>배터리</b></td><td>AI별 남은 사용량. <b>—</b>는 읽는 중이거나 로그인 필요</td><td>My Agent 대시보드</td></tr>
     <tr><td><b>공용 / ○○ 공간</b></td><td>지금 화면이 공용인지 내 개인 공간인지</td><td>개인 공간 만들기·잠그기(8장)</td></tr>
     <tr><td><b>계정 공유</b></td><td>혼자 쓰면 「혼자 사용」, 나눠 쓰면 「4명 · 내 몫 18% / 25%」. 몫에 가까우면 노랑, 넘으면 빨강</td><td>사람 수 －/＋ · 내 몫 막대(8장)</td></tr>
     <tr><td><b>말풍선 단추</b></td><td>IRIS 메신저(확장 모듈). 흐리고 ↓ 표시면 아직 설치 전</td><td>설치하거나 메신저 열기</td></tr>
