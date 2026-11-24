@@ -30,7 +30,7 @@ window.Tutorial = (() => {
   const DECK = '/app/tutorial/deck';
   const CHAPTERS = [['start', '시작', 1, 2], ['agent', '에이전트', 3, 8], ['map', '지도', 9, 12], ['doors', '소환', 13, 22], ['three', '3가지', 23, 30], ['lab', '실습', 31, 37], ['end', '마무리', 38, 99]];
   const chapOf = (no) => (CHAPTERS.find(([, , a, b]) => no >= a && no <= b) || CHAPTERS.at(-1))[0];
-  let SCENES = [{ id: 'build', kind: 'build', chap: 'three' }, { id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' }, { id: 'finish', kind: 'finish', chap: 'end' }];
+  let SCENES = [{ id: 'build', kind: 'build', chap: 'three' }, { id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' }, { id: 'newdoc', kind: 'newdoc', chap: 'end' }, { id: 'newsafe', kind: 'newsafe', chap: 'end' }, { id: 'newmenu', kind: 'newmenu', chap: 'end' }, { id: 'finish', kind: 'finish', chap: 'end' }];
   const buildIdx = () => SCENES.findIndex(s => s.kind === 'build');
   /** 덱 쪽 목록(manifest) → 장면 줄. 덱을 못 읽으면 IRIS 장면 3개만(튜토리얼 자체는 돈다). */
   function makeScenes(man) {
@@ -39,10 +39,10 @@ window.Tutorial = (() => {
     for (const s of man.slides) {
       out.push({ id: `d${s.no}`, kind: 'deck', no: s.no, chap: chapOf(s.no), title: s.title });
       if (s.no === 26) out.push({ id: 'build', kind: 'build', chap: 'three' });
-      if (s.no === 38) out.push({ id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' });
+      if (s.no === 38) out.push({ id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' }, { id: 'newdoc', kind: 'newdoc', chap: 'end' }, { id: 'newsafe', kind: 'newsafe', chap: 'end' }, { id: 'newmenu', kind: 'newmenu', chap: 'end' });
     }
     if (!out.some(s => s.kind === 'build')) out.push({ id: 'build', kind: 'build', chap: 'three' });
-    if (!out.some(s => s.kind === 'usage')) out.push({ id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' });
+    if (!out.some(s => s.kind === 'usage')) out.push({ id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' }, { id: 'newdoc', kind: 'newdoc', chap: 'end' }, { id: 'newsafe', kind: 'newsafe', chap: 'end' }, { id: 'newmenu', kind: 'newmenu', chap: 'end' });
     out.push({ id: 'finish', kind: 'finish', chap: 'end' });
     SCENES = out;
   }
@@ -86,10 +86,19 @@ window.Tutorial = (() => {
     usage: { pill: '하던 일 멈추기 = <b>Esc</b>',
       text: () => head('IRIS 화면', '한 화면에서<br><span>여러 에이전트를</span>', pts([['작업목록', '열린 대화들'], ['새 요청 +', '폴더 · 에이전트 · 요청'], ['확인 카드', '숫자나 단추로 허락'], ['대화 / 터미널', '보기 바꾸기'], ['설정 ⚙', '디자인·도구·업데이트'], ['입력창', '이어서 시키기 · 파일 끌어 놓기']], 'six')),
       art: () => `<figure class="tu-pic shot" data-act="zoom" title="크게 보기"><img src="${IMG('usage')}" alt="IRIS 화면 캡처: ① 작업목록 ② 새 요청(+) ③ 확인 카드 ④ 대화/터미널 전환 ⑤ 설정 ⑥ 입력창에 번호가 붙어 있다" decoding="async" draggable="false"></figure>` },
-    // P18 고도화판(2026-11-20 사용자 요청 "튜토리얼도 반영"): 사용법 다음에 새 기능 한 장면 — 자세한 것은 사용 설명서
+    // P18 고도화판(2026-11-20 「튜토리얼도 반영」 · 2026-11-24 「새로운 내용 정리해서 튜토리얼도 고쳐」): 사용법 다음에 새 기능 네 장면 — 자세한 것은 사용 설명서. 그림 = node manual/scripts/capture.mjs tu
     newfeat: { pill: '자세한 사용법 = ⚙ 설정 → 업데이트·정보 → <b>사용 설명서</b>',
-      text: () => head('고도화판', '새로 생긴<br><span>여섯 가지</span>', pts([['Gemini', '세 번째 AI 비서'], ['캔버스', '만드는 파일을 옆에서 실시간으로'], ['수식', '대화 속 수식 · 한글/워드 진짜 수식'], ['내 MCP 추가', 'AI에게 새 도구 꽂기'], ['테마 21종', '밝은 테마 · 수학 무대'], ['고정 · 삭제', '작업목록 오른쪽 클릭']], 'six')),
+      text: () => head('고도화판 · 하나', '새로 생긴<br><span>여섯 가지</span>', pts([['Gemini', '세 번째 AI 비서'], ['캔버스', '만드는 파일을 옆에서 실시간으로'], ['수식', '대화 속 · 한글/워드 진짜 수식'], ['내 MCP 추가', 'AI에게 새 도구 꽂기'], ['테마 21종', '밝은 테마 · 수학 무대'], ['고정 · 삭제', '작업목록 오른쪽 클릭']], 'six')),
       art: () => `<figure class="tu-pic shot" data-act="zoom" title="크게 보기"><img src="${IMG('newfeat')}" alt="IRIS 캔버스 화면 캡처: AI 가 만든 학습지가 대화 오른쪽 캔버스에 떠 있다" decoding="async" draggable="false"></figure>` },
+    newdoc: { pill: '지난 대화 검색 = <b>Ctrl+Shift+F</b>',
+      text: () => head('고도화판 · 둘', '문서를 보면서<br><span>바로 고치기</span>', pts([['슬라이드 · 종이', 'PPT는 슬라이드, 문서는 종이로'], ['눌러서 고치기', '누른 글자가 「고칠 곳」에 적혀요'], ['앞 판 되돌리기', 'AI가 고치기 전과 견주기'], ['지난 대화 검색', '작업목록의 돋보기'], ['요청 서식함', '자주 쓰는 요청을 저장'], ['내보내기', '대화를 한글·워드·HTML로']], 'six')),
+      art: () => `<figure class="tu-pic shot" data-act="zoom" title="크게 보기"><img src="${IMG('newdoc')}" alt="IRIS 캔버스 화면 캡처: 슬라이드 네 장 가운데 세 번째의 한 줄을 눌러 고칠 곳에 적혔다" decoding="async" draggable="false"></figure>` },
+    newsafe: { pill: '예약은 <b>IRIS가 켜져 있을 때</b>만 돌아요',
+      text: () => head('고도화판 · 셋', '알아서 하고,<br><span>안전하게</span>', pts([['예약 실행', '정한 요일·시각에 새 대화'], ['로컬 AI (sLLM)', 'PC 안에서만 도는 작은 AI'], ['개인정보 확인', '보내기 전에 알려 주고 가리기'], ['열쇠 보관', 'MCP 열쇠는 이 PC에 잠가서'], ['기록 지키기', '내 윈도 계정만 보기'], ['새 PC로 옮기기', '암호로 잠근 묶음 하나']], 'six')),
+      art: () => `<figure class="tu-pic shot" data-act="zoom" title="크게 보기"><img src="${IMG('newsafe')}" alt="IRIS 설정 화면 캡처: 예약 실행에 매주 월요일 8시 30분 할 일 정리를 적고 있다" decoding="async" draggable="false"></figure>` },
+    newmenu: { pill: '설정 열기 = <b>Ctrl+,</b>',
+      text: () => head('고도화판 · 넷', '찾기 쉽게<br><span>정리된 메뉴</span>', pts([['설정 네 묶음', '화면 · 일하기 · 안전 · IRIS'], ['첨부 하나로', '클립 = 파일 · 사진 · 카메라'], ['더 보기 ⋯', '대화와 캔버스의 가끔 쓰는 일'], ['머리줄 사용량', 'AI마다 남은 양 한눈에']], 'six')),
+      art: () => `<figure class="tu-pic shot" data-act="zoom" title="크게 보기"><img src="${IMG('newmenu')}" alt="IRIS 설정 화면 캡처: 오른쪽 목차가 화면, 일하기, 안전, IRIS 네 묶음으로 나뉘어 있다" decoding="async" draggable="false"></figure>` },
     finish: { pill: '예시 요청이 채워지고, <b>보내기는 직접</b> 누릅니다',
       text: () => head('준비 끝', '좋은 몸을 고르고,<br><span>자리와 연장</span>을 마련하기') + finishHtml(),
       art: () => ICONS() },

@@ -78,7 +78,7 @@ window.Settings = (() => {
     el.innerHTML = chips + note;
   }
   document.addEventListener('iris:stage', (e) => { if (open) renderStage(e.detail); });
-  function applyAll() { applyFont(); applyTheme(); applyMark(); applyFont(); applyName(); applyStage(); }
+  function applyAll() { applyZoom(); applyTheme(); applyMark(); applyFont(); applyName(); applyStage(); }
 
   // ---- 배터리 = 현재 우선(왕관) 계정의 **남은 주간 잔량**(100 − 사용률) ----
   const left = (v) => v == null ? null : Math.max(0, Math.min(100, Math.round((1 - v) * 100)));
@@ -495,7 +495,7 @@ window.Settings = (() => {
   // 글자 크기(P18 2026-11-24 2차 시안 5번): 80~160%. 앱 창 = 화면 배율(preload), 브라우저 모드 = CSS zoom
   const fontNow = () => Math.max(80, Math.min(160, Math.round(Number(cfg.fontScale) || 100)));
   let fontSet = 0;
-  function applyFont() { const v = fontNow(); if (v === fontSet) return; fontSet = v; if (!window.irisHost?.zoom?.(v / 100)) document.body.style.zoom = v === 100 ? '' : v / 100; }
+  function applyZoom() { const v = fontNow(); if (v === fontSet) return; fontSet = v; if (!window.irisHost?.zoom?.(v / 100)) document.body.style.zoom = v === 100 ? '' : v / 100; }
   function fontStep(d) { pick({ fontScale: d ? Math.max(80, Math.min(160, fontNow() + d)) : 100 }); }
   function pick(patch) { Object.assign(cfg, patch); applyAll(); save(); renderPanel(); }
   /** 계정 공유 사람 수(1~50) — 설정 칸과 머리줄 「계정 공유」 작은 창(main.js TeamPop)이 같은 길로 저장한다. */

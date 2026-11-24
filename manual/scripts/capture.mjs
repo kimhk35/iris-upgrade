@@ -154,6 +154,29 @@ try {
     await p.evaluate(() => { Settings.setSharePeople(1); });
   }
 
+  // 12) 튜토리얼 그림(node capture.mjs tu) — 원본 PNG 는 shots-src/tu-*.png, face/app/tutorial/*.webp 로 줄여 넣는다
+  if (only.includes('tu')) {
+    const pic = async (q, name, marks = []) => { await q.evaluate(clearMarks); await q.evaluate(MARK(), marks); await q.evaluate(() => { const r = document.querySelector('#st-root'); if (r) r.textContent = 'C:' + String.fromCharCode(92) + 'IRIS'; }); await sleep(250); await q.screenshot({ path: path.join(OUT, `tu-${name}.png`) }); console.log('tu', name); };
+    let q = await newPage();
+    await open(q, '물리학 세특 초안 쓰기'); await q.locator('#composer-text').fill('2반도 같은 방식으로 이어서 써 줘');
+    await pic(q, 'usage', [['#session-list', 14, 8], ['#btn-home', -4, 2], ['#approval', 8, 8], ['#btn-mode-chat', -4, -4], ['#btn-settings', 2, 46], ['#composer', 8, 6]]); await q.locator('#composer-text').fill('');
+    await open(q, '운동량 보존 학습지 만들기'); await sleep(1500); await pic(q, 'newfeat', []); await q.close();
+    q = await newPage(); const T2 = new Date(now - 200000).toISOString();
+    if (process.env.TU_PPT) {
+      const ppt = path.join(cwdP, '운동량 보존.pptx'); fs.copyFileSync(process.env.TU_PPT, ppt);
+      await q.route('**/api/sessions/a4/transcript*', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ i: 1, t: T2, kind: 'user', text: '운동량 보존 수업 슬라이드를 네 장으로 만들어 줘.' }, { i: 2, t: T2, kind: 'tool', name: 'Write', detail: '운동량 보존.pptx', files: [ppt] }, { i: 3, t: T2, kind: 'assistant', text: '슬라이드 네 장을 만들었습니다. 오른쪽 **캔버스**에서 바로 넘겨 보고, 고칠 곳을 눌러 주세요.' }], meta: {} }) }));
+      await open(q, '운동량 보존 학습지 만들기'); for (let i = 0; i < 80 && !(await q.locator('.canvas .dv-main img, .canvas .dv img').count()); i++) await sleep(500);
+      await sleep(1500); await q.locator('.canvas').getByText('3', { exact: true }).first().click().catch(() => {}); await sleep(900);
+      const im = await q.evaluate(() => { const l = [...document.querySelectorAll('.canvas img')].map((e) => e.getBoundingClientRect()).sort((a, b) => b.width - a.width)[0]; return l ? [l.x, l.y, l.width, l.height] : null; });
+      if (im) { await q.mouse.click(im[0] + im[2] * .25, im[1] + im[3] * .41); await sleep(1500); }
+      await pic(q, 'newdoc', []);
+    }
+    await q.evaluate(() => Settings.show('sched')); await sleep(900); await q.locator('[data-sc=new]').click(); await sleep(700);
+    for (const [k, v] of [['name', '이번 주 할 일'], ['prompt', '이번 주 수업과 회의를 정리해서 할 일 목록을 만들어 줘'], ['cwd', 'C:' + String.fromCharCode(92) + 'IRIS' + String.fromCharCode(92) + 'R01-교사(Teacher)'], ['time', '08:30']]) await q.locator(`[data-f=${k}]`).fill(v);
+    await q.locator('[data-day="1"]').first().click(); await sleep(300); await pic(q, 'newsafe', []);
+    await q.evaluate(() => Settings.show('privacy')); await sleep(900); await pic(q, 'newmenu', [['#st-nav .st-nav-cap:nth-of-type(1)', -6, 8]].slice(1)); await q.close();
+  }
+
   // 11) 인터뷰 안내 띠 — 내 작업 폴더가 없을 때 첫 화면(가짜로 「폴더 없음」), × 누르면 사라지고 다시 안 뜸
   if (only.includes('ivhint')) {
     const q = await newPage({ sessions: [] });

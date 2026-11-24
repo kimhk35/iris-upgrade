@@ -23,6 +23,7 @@ const PANES = ['design', 'notify', 'session', 'sched', 'ontology', 'tools', 'mod
 const html = src('app/index.html'), js = src('app/settings.js'), icons = src('app/icons.js'), main = src('app/main.js');
 const aside = html.slice(html.indexOf('<aside id="settings"'), html.indexOf('</aside>', html.indexOf('<aside id="settings"')));
 const order = [...aside.matchAll(/class="st-pane(?: wide)?" data-pane="([a-z]+)"/g)].map(m => m[1]);
+{ const src = fs.readFileSync(path.join(ROOT, 'app', 'settings.js'), 'utf8'), seen = {}; for (const m of src.matchAll(/^  (?:async )?function (\w+)\(/gm)) seen[m[1]] = (seen[m[1]] || 0) + 1; const dup = Object.keys(seen).filter((x) => seen[x] > 1); ok(!dup.length, `1 같은 이름 함수가 두 번 없음(뒤엣것이 앞것을 덮음) ${dup.join(',')}`); }
 ok(JSON.stringify(order) === JSON.stringify(PANES), `1 묶음 ${PANES.length}개 순서 (${order.join(',')})`);
 ok(/data-pane="design">\s*<div class="st-pane-h"><h2>디자인<\/h2>/.test(aside) && !/<h2>모양<\/h2>/.test(aside), '1 첫 묶음 이름 = 디자인(옛 "모양" 없음)');
 const navOrder = [...aside.matchAll(/class="st-nav-i" data-pane="([a-z]+)"/g)].map(m => m[1]);
@@ -43,7 +44,7 @@ ok(/localStorage\.setItem\('iris\.settings\.pane'/.test(js), '1 마지막으로 
 // ---------- 2) 시험 데몬 + 화면 ----------
 const req = createRequire(import.meta.url);
 let pw = null;
-for (const c of ['playwright', path.join(process.env.APPDATA || '', 'npm/node_modules/playwright')]) { try { pw = req.resolve(c); break; } catch {} }
+for (const c of [process.env.PLAYWRIGHT_CORE, 'playwright', path.join(process.env.APPDATA || '', 'npm/node_modules/playwright')]) { if (c) try { pw = req.resolve(c); break; } catch {} }
 if (!pw) console.log('SKIP 2절: playwright 없음');
 else {
   const mod = await import(pathToFileURL(pw).href); const chromium = (mod.default || mod).chromium;
@@ -58,7 +59,7 @@ else {
   try {
     let up = false; for (let i = 0; i < 60 && !up; i++) { await sleep(250); try { up = (await fetch(`http://127.0.0.1:${PORT}/api/health`)).ok; } catch {} }
     ok(up, `2 시험 데몬 ${PORT} pid=${d.pid}`);
-    browser = await chromium.launch();
+    browser = await chromium.launch(process.env.PLAYWRIGHT_CORE ? { channel: 'msedge' } : {});
     for (const W of [1280, 900]) {
       const p = await browser.newPage({ viewport: { width: W, height: 860 } });
       const errs = []; p.on('pageerror', e => errs.push(e.message)); p.on('console', m => { if (m.type() === 'error' && !/favicon/.test(m.text()) && !/^Failed to load resource/.test(m.text())) errs.push(m.text()); });

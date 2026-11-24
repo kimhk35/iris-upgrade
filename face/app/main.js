@@ -44,7 +44,7 @@
   // ---------- 조합 선택 상태(마지막 선택 기억) ----------
   // 세팅 진행 막대(v2.65, 가이드 v14 0-6): 데몬이 _agent\setup\setup-progress.json 을 읽어 보낸다. 없으면 숨김, 전부 끝나면 잠시 보이고 숨김.
   let setupHideTimer = null;
-  function renderSetup(p) {
+  function renderSetupBar(p) { // 아래 renderSetup(에이전트·모델 줄)과 이름이 같아 이 막대가 그려지지 않던 것(2026-11-25)
     const bar = document.getElementById('setup-bar'); if (!bar) return;
     clearTimeout(setupHideTimer);
     if (!p || !p.total) { bar.hidden = true; return; }
@@ -150,7 +150,7 @@
       if (m.type === 'hello') { sessions = visibleOnly(m.sessions); if (m.subs) for (const [id, l] of Object.entries(m.subs)) SubPanel.setList(id, l); bgMap.clear(); if (m.bg) for (const [id, l] of Object.entries(m.bg)) bgMap.set(id, l); if (Array.isArray(m.modules)) setModules(m.modules); if (m.update) Settings.setUpdate(m.update); if (m.updateResult) Settings.showUpdateResult(m.updateResult); renderSetup(m.setup); Handoff.apply(m.handoff); applyLeadAgent(m.handoff); Tutorial.maybeOpen(m.handoff); if (m.mem) MemGauge.onSample(m.mem); if (m.auth) Settings.setAuth(m.auth); render(); }
       else if (m.type === 'shutdown') showQuitting();                                                       // 전부 종료 시작(v2.97) — 어느 창·탭이 시작했든 「종료하는 중」
       else if (m.type === 'mem') MemGauge.onSample(m.s);                                                    // 메모리 계기판(v2.78): 2초마다 실제 RAM·커밋
-      else if (m.type === 'setup') renderSetup(m.progress);                                                // 세팅 진행 막대(v2.65)
+      else if (m.type === 'setup') renderSetupBar(m.progress);                                                // 세팅 진행 막대(v2.65)
       else if (m.type === 'handoff') { Handoff.apply(m); Tutorial.maybeOpen(m); }                                                     // 인수 안내 카드(설치 패키지 v2, Task 21)
       else if (m.type === 'auth') Settings.onAuth(m);                                                      // 인증(v2.84): 열쇠 만료 상태·갱신 진행
       else if (m.type === 'update') Settings.onUpdate(m);                                                  // 업데이트(v2.58): 확인 결과·내려받기 진행

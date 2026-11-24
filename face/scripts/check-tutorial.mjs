@@ -150,7 +150,7 @@ ok(folderName('R01', '교사', 'Teacher') === 'R01-교사(Teacher)' && folderNam
 // ---------- 6) 시험 데몬 + 헤드리스 ----------
 const req = createRequire(import.meta.url);
 let pw = null;
-for (const c of ['playwright', path.join(process.env.APPDATA || '', 'npm/node_modules/playwright')]) { try { pw = req.resolve(c); break; } catch {} }
+for (const c of [process.env.PLAYWRIGHT_CORE, 'playwright', path.join(process.env.APPDATA || '', 'npm/node_modules/playwright')]) { if (c) try { pw = req.resolve(c); break; } catch {} }
 if (!pw) console.log('SKIP 6절: playwright 없음');
 else {
   const mod = await import(pathToFileURL(pw).href); const chromium = (mod.default || mod).chromium;
@@ -166,7 +166,7 @@ else {
   try {
     let up = false; for (let i = 0; i < 60 && !up; i++) { await sleep(250); try { up = (await fetch(`http://127.0.0.1:${PORT}/api/health`)).ok; } catch {} }
     ok(up, `6 시험 데몬 ${PORT} (영혼 = 임시 폴더)`);
-    browser = await chromium.launch();
+    browser = await chromium.launch(process.env.PLAYWRIGHT_CORE ? { channel: 'msedge' } : {});
     const p = await browser.newPage({ viewport: { width: 1360, height: 860 } });
     const errs = []; p.on('pageerror', e => errs.push(e.message)); p.on('console', m => { if (m.type() === 'error' && !/favicon/.test(m.text())) errs.push(m.text()); });
     await p.goto(`http://127.0.0.1:${PORT}/`);
@@ -203,7 +203,7 @@ else {
     const onSlide = () => p.evaluate(() => { const s = document.querySelector('.tu-deck')?.shadowRoot?.querySelector('section.slide.on'); return s && !document.querySelector('.tu-deck').hidden ? { no: +s.dataset.no, text: s.textContent.replace(/\s+/g, ' ') } : null; });
     await sleep(600);
     const s1 = await onSlide();
-    ok(await pno() === '1 / 44' && s1?.no === 1 && /IRIS 시작하기 · 약 18분/.test(s1.text) && /교사를 위한/.test(s1.text) && !(await p.locator('[data-nav="restart"]').isVisible()), `6 첫 장면 = 덱 1쪽(그림자 DOM, 고친 표지) · 1 / 43 (${await pno()} · ${s1?.text.slice(0, 40)})`);
+    ok(await pno() === '1 / 47' && s1?.no === 1 && /IRIS 시작하기 · 약 18분/.test(s1.text) && /교사를 위한/.test(s1.text) && !(await p.locator('[data-nav="restart"]').isVisible()), `6 첫 장면 = 덱 1쪽(그림자 DOM, 고친 표지) · 1 / 43 (${await pno()} · ${s1?.text.slice(0, 40)})`);
     const fit = await p.evaluate(() => { const h = document.querySelector('.tu-deck'), st = h.shadowRoot.getElementById('stage').getBoundingClientRect(), hb = h.getBoundingClientRect(); return { w: st.width, h: st.height, hw: hb.width, hh: hb.height, font: getComputedStyle(h.shadowRoot.querySelector('h1')).fontFamily }; });
     ok(Math.abs(fit.w / fit.h - 16 / 9) < .01 && fit.w <= fit.hw + 1 && fit.h <= fit.hh + 1 && (Math.abs(fit.w - fit.hw) < 2 || Math.abs(fit.h - fit.hh) < 2) && /IRIS Deck KR/.test(fit.font), `6 덱 무대 16:9 를 판에 맞춰 줄임 (${Math.round(fit.w)}×${Math.round(fit.h)} / 판 ${Math.round(fit.hw)}×${Math.round(fit.hh)}) · 글꼴 ${fit.font.split(',')[0]}`);
     ok(await p.evaluate((ws) => { const t = document.querySelector('.tu-deck').shadowRoot.innerHTML.toLowerCase(); return ws.every(w => !t.includes(w.toLowerCase())); }, banned) && (await p.locator('[data-nav="later"]').count()) === 0 && await p.locator('.tu-x').isVisible(), '6 화면의 덱에도 금지 낱말 없음 · 아래 「나중에 하기」 없음 · 오른쪽 위 ×');
@@ -212,15 +212,15 @@ else {
     ok(vars.blue === '#2149EF' && vars.bg === 'rgb(249, 250, 255)' && vars.accent === 'rgb(33, 73, 239)' && vars.css === ':host{--blue', `6 덱 색 변수 적용(--blue ${vars.blue} · 바탕 ${vars.bg} · 강조 글자 ${vars.accent})`);
     await shot('01');
     await p.keyboard.press('ArrowRight'); await sleep(300);
-    ok(await pno() === '2 / 44' && (await onSlide())?.no === 2 && /이렇게 둘러봅니다/.test((await onSlide()).text) && await p.locator('[data-nav="restart"]').isVisible(), '6 → 키 = 다음 쪽(2쪽 「이렇게 둘러봅니다」) · 「처음부터」 보임');
+    ok(await pno() === '2 / 47' && (await onSlide())?.no === 2 && /이렇게 둘러봅니다/.test((await onSlide()).text) && await p.locator('[data-nav="restart"]').isVisible(), '6 → 키 = 다음 쪽(2쪽 「이렇게 둘러봅니다」) · 「처음부터」 보임');
     await p.keyboard.press('ArrowLeft'); await sleep(200);
-    ok(await pno() === '1 / 44', '6 ← 키 = 앞 쪽');
+    ok(await pno() === '1 / 47', '6 ← 키 = 앞 쪽');
     await p.locator('.tu-steps li[data-chap="agent"]').click(); await sleep(1600);
     const cob = await p.evaluate(() => { const h = document.querySelector('.tu-deck'), s = h.shadowRoot.querySelector('section.slide.on'); const em = s.querySelector('.eyebrow em'); return { no: +s.dataset.no, cls: s.className, bg: getComputedStyle(s).backgroundColor, host: h.classList.contains('blue'), em: em ? [getComputedStyle(em).color, getComputedStyle(em).backgroundColor] : null }; });
     ok(cob.no === 3 && /cobalt/.test(cob.cls) && cob.bg === 'rgb(33, 73, 239)' && cob.host, `6 파란 장(3쪽 1부 표지) = 파란 바탕 위 흰 글자 · 무대 밖 여백도 파랑 (${cob.bg} · 여백 ${cob.host} · ${JSON.stringify(cob.em)})`);
     await p.locator('.tu-steps li[data-chap="doors"]').click(); await sleep(300);
     const s13 = await onSlide(); await shot('13');
-    ok(s13?.no === 13 && await pno() === '13 / 44', `6 장 원 누르기 = 그 장 첫 쪽(소환 = 13쪽) (${s13?.no})`);
+    ok(s13?.no === 13 && await pno() === '13 / 47', `6 장 원 누르기 = 그 장 첫 쪽(소환 = 13쪽) (${s13?.no})`);
     await p.locator('.tu-steps li[data-chap="doors"]').click(); for (let i = 0; i < 5; i++) { await p.locator('[data-nav="next"]').click(); await sleep(120); }
     const s18 = await onSlide(); await shot('18');
     ok(s18?.no === 18 && /MIT 허가서/.test(s18.text) && !banned.some(w => s18.text.toLowerCase().includes(w.toLowerCase())), '6 18쪽 IRIS = 제작자(학교·이름) 줄 대신 MIT 허가서');
@@ -231,12 +231,12 @@ else {
     for (let i = 0; i < 4; i++) { await p.locator('[data-nav="next"]').click(); await sleep(150); }
     // 내 폴더(26쪽 뒤): 성별 → 역할 카드(× 빼기 · + 추가) → 폴더 나무 → 확인 창 → 승인해야 「다음」
     // P18(2026-11-20): 내 폴더 맨 앞 = 갈림길(AI 인터뷰 추천 · 직접 · 나중에) — 첫 실행은 고르기 전에도 「다음」 잠김
-    ok(await pno() === '27 / 44' && await p.locator('.tu-deck').isHidden() && (await p.locator('.tu-ways .tu-way').count()) === 3 && await p.locator('.tu-way.rec[data-way="interview"]').isVisible() && await p.locator('[data-nav="next"]').isDisabled(), `6 26쪽 다음 = 내 폴더 갈림길(인터뷰·직접·나중에) · 「다음」 잠김 (${await pno()})`);
+    ok(await pno() === '27 / 47' && await p.locator('.tu-deck').isHidden() && (await p.locator('.tu-ways .tu-way').count()) === 3 && await p.locator('.tu-way.rec[data-way="interview"]').isVisible() && await p.locator('[data-nav="next"]').isDisabled(), `6 26쪽 다음 = 내 폴더 갈림길(인터뷰·직접·나중에) · 「다음」 잠김 (${await pno()})`);
     await p.locator('.tu-way[data-way="manual"]').click(); await sleep(400);
     ok((await p.locator('.tu-gpick .tu-gcard').count()) === 2, '6 「직접 만들기」 = 성별 먼저(남성·여성)');
     ok(await p.locator('[data-nav="next"]').isDisabled() && await p.locator('.tu-gate').isVisible(), '6 내 폴더: 폴더를 만들기 전엔 「다음」 잠김 + 안내');
     await p.keyboard.press('ArrowRight'); await sleep(150);
-    ok(await pno() === '27 / 44', '6 → 키로도 잠금을 넘지 못함');
+    ok(await pno() === '27 / 47', '6 → 키로도 잠금을 넘지 못함');
     await shot('27-gender');
     await p.locator('.tu-gcard[data-gender="m"]').click(); await sleep(500);
     const cardsM = await p.evaluate(() => [...document.querySelectorAll('.tu-rg .tu-rc[data-role] .ps-img')].map(i => i.getAttribute('src').split('/').pop()).join(','));
@@ -292,7 +292,7 @@ else {
     await p.locator('#tu-make').click(); await sleep(150); await p.locator('[data-m="yes"]').click(); await p.waitForSelector('#tu-made', { timeout: 30000 }).catch(() => {});
     ok(warned === 1 && relock && /모두 이미 있습니다/.test(await p.locator('#tu-made').textContent().catch(() => '')) && !(await p.locator('[data-nav="next"]').isDisabled()), '6 만든 뒤 고치면 노란 띠 + 「다음」 다시 잠김 → 다시 승인하면 열림(이미 있는 폴더는 그대로)');
     await p.locator('[data-nav="next"]').click(); await sleep(300);
-    ok((await onSlide())?.no === 27 && await pno() === '28 / 44' && !(await p.evaluate(() => document.querySelector('.tu-steps li[data-chap="lab"]').classList.contains('lock'))), '6 다음 = 27쪽 레퍼런스(덱) · 실습 장 잠금 풀림');
+    ok((await onSlide())?.no === 27 && await pno() === '28 / 47' && !(await p.evaluate(() => document.querySelector('.tu-steps li[data-chap="lab"]').classList.contains('lock'))), '6 다음 = 27쪽 레퍼런스(덱) · 실습 장 잠금 풀림');
     await p.locator('.tu-steps li[data-chap="end"]').click(); await sleep(250);
     ok((await onSlide())?.no === 38 && /IRIS 열기/.test((await onSlide()).text) && /이미 끝났습니다/.test((await onSlide()).text), '6 마무리 장 = 38쪽 「직접 해 보기」(① IRIS 열기 — 이미 끝났습니다)');
     await p.locator('[data-nav="next"]').click(); await sleep(400); await shot('usage');
@@ -303,13 +303,17 @@ else {
     ok(zoomed && !(await p.locator('.tu-zoom').isVisible()) && await p.locator('#tutorial').isVisible() && /여러 에이전트/.test(await p.locator('.tu-text h2').textContent()), '6 38쪽 다음 = IRIS 사용법 캡처 · 크게 보기 → Esc = 크게 보기만 닫힘');
     await p.locator('[data-nav="next"]').click(); await sleep(250); await shot('newfeat');
     ok(/여섯 가지/.test(await p.locator('.tu-text h2').textContent()) && /Gemini/.test(await p.locator('.tu-text').textContent()) && await p.locator('.tu-pic.shot img[src*="newfeat"]').isVisible(), '6 사용법 다음 = 고도화판 새 기능(Gemini·캔버스 … · 캔버스 캡처)');
+    for (const [id, word, n] of [['newdoc', '바로 고치기', 6], ['newsafe', '안전하게', 6], ['newmenu', '정리된 메뉴', 4]]) {
+      await p.locator('[data-nav="next"]').click(); await sleep(350); await shot(id);
+      ok((await p.locator('.tu-text h2').textContent()).includes(word) && (await p.locator('.tu-pts li').count()) === n && await p.locator(`.tu-pic.shot img[src*="${id}"]`).evaluate((i) => i.naturalWidth > 1000), `6 새 기능 이어서 = ${id} (${word})`);
+    }
     await p.locator('[data-nav="next"]').click(); await sleep(250);
     ok((await onSlide())?.no === 39, '6 새 기능 다음 = 39쪽(40쪽 강사 소개는 없음)');
     await p.locator('[data-nav="next"]').click(); await sleep(250);
     const s41 = await onSlide();
     ok(s41?.no === 41 && /좋은 몸을 고르고/.test(s41.text) && !/감사합니다|iris-workspace\.com/.test(s41.text), '6 41쪽 = 오늘의 한 문장(QR·인사 뺌)');
     await p.locator('[data-nav="next"]').click(); await sleep(250); await shot('finish');
-    ok(await pno() === '44 / 44' && (await p.locator('#tu-fc-agent').inputValue()) === 'codex' && /물리학/.test(await p.locator('#tu-fc-folder').inputValue()) && await p.locator('[data-nav="next"]').isHidden(), '6 마지막 = 「첫 대화 해 보기」: 주도 에이전트(코덱스) · 방금 만든 폴더');
+    ok(await pno() === '47 / 47' && (await p.locator('#tu-fc-agent').inputValue()) === 'codex' && /물리학/.test(await p.locator('#tu-fc-folder').inputValue()) && await p.locator('[data-nav="next"]').isHidden(), '6 마지막 = 「첫 대화 해 보기」: 주도 에이전트(코덱스) · 방금 만든 폴더');
     await p.keyboard.press('Escape'); await sleep(150);
     ok(await p.locator('#tutorial').isVisible(), '6 Esc 는 튜토리얼을 닫거나 작업 중단으로 새지 않는다');
     await p.locator('[data-act="first"]').click();
@@ -325,7 +329,7 @@ else {
     ok(!(await p.locator('#tutorial').isVisible()), '6 다시 열어도 튜토리얼은 다시 뜨지 않는다');
     // ---------- 7) 설정: 묶음 8개 · 열쇠 카드 세 장 · 온톨로지 그래프 · 도구 · 튜토리얼 다시 보기 ----------
     const navOrder = await p.evaluate(() => [...document.querySelectorAll('#st-nav .st-nav-i')].map(b => b.dataset.pane).join(','));
-    ok(navOrder === 'design,session,ontology,tools,notify,mods,account,about', `7 목차 8묶음 순서 (${navOrder})`);
+    ok(navOrder === 'design,notify,session,sched,ontology,tools,mods,account,privacy,move,about', `7 목차 11묶음 순서 (${navOrder})`);
     await p.evaluate(() => Settings.setAuth({ available: true, info: { checkedAt: new Date().toISOString(), items: [
       { id: 'iris', group: 'iris', label: 'IRIS 창', name: 'iris', provider: 'claude', level: 'ok', daysLeft: 300, longKey: true },
       { id: 'c1', group: 'relay', label: 'claude-a', name: 'a', provider: 'claude', level: 'soon', daysLeft: 2 },
@@ -460,14 +464,14 @@ else {
     await p.locator('#tl-q').fill(''); await shot('s-tools');
     await p.locator('#st-nav [data-pane="about"]').click(); await sleep(200);
     await p.locator('#st-tutorial').click(); await sleep(1200);
-    ok(await p.locator('#tutorial').isVisible() && !(await p.locator('#settings').isVisible()) && await p.locator('.tu-pno').textContent() === '1 / 44', '7 「튜토리얼 다시 보기」 = 설정 닫고 엶 · 끝까지 봤으면 처음부터');
+    ok(await p.locator('#tutorial').isVisible() && !(await p.locator('#settings').isVisible()) && await p.locator('.tu-pno').textContent() === '1 / 47', '7 「튜토리얼 다시 보기」 = 설정 닫고 엶 · 끝까지 봤으면 처음부터');
     for (let i = 0; i < 3; i++) { await p.keyboard.press('ArrowRight'); await sleep(150); }
     await sleep(900); await p.locator('.tu-x').click(); await sleep(400);
     ok(!(await p.locator('#tutorial').isVisible()) && JSON.parse(fs.readFileSync(path.join(state, 'tutorial.json'), 'utf8')).step === 'd4', '7 × = 바로 닫힘(적던 것 없음) · 보던 쪽 d4 저장');
     await p.evaluate(() => Settings.show('about')); await sleep(200); await p.locator('#st-tutorial').click(); await sleep(1200);
-    ok(await p.locator('.tu-pno').textContent() === '4 / 44' && await p.locator('[data-nav="restart"]').isVisible(), '7 다시 보기 = 보던 쪽(4쪽)에서 이어서 · 「처음부터」 보임');
+    ok(await p.locator('.tu-pno').textContent() === '4 / 47' && await p.locator('[data-nav="restart"]').isVisible(), '7 다시 보기 = 보던 쪽(4쪽)에서 이어서 · 「처음부터」 보임');
     await p.locator('[data-nav="restart"]').click(); await sleep(200);
-    ok(await p.locator('.tu-pno').textContent() === '1 / 44', '7 「처음부터」 = 1쪽');
+    ok(await p.locator('.tu-pno').textContent() === '1 / 47', '7 「처음부터」 = 1쪽');
     // 이미 역할 폴더가 있는 다시 보기: 실제 구조를 「이미 있음」으로 · 잠금 없음 · 같은 한글 이름은 그 폴더로
     await p.locator('.tu-steps li[data-chap="three"]').click(); await sleep(150); for (let i = 0; i < 4; i++) { await p.locator('[data-nav="next"]').click(); await sleep(150); }
     await sleep(300);
@@ -502,7 +506,7 @@ else {
     ok(await p.locator('.tu-modal').isVisible(), '7 → 키로 지나가도 같은 확인 창');
     await p.locator('[data-m="skip"]').click(); await sleep(300);
     ok(await pno() !== buildNo && dCount() === 2, '7 「안 만들고 넘어가기」 = 다음 장면 · 폴더 없음');
-    for (let i = 0; i < 30 && await pno() !== '44 / 44'; i++) { await p.locator('[data-nav="next"]').click(); await sleep(120); }
+    for (let i = 0; i < 40 && await pno() !== '47 / 47'; i++) { await p.locator('[data-nav="next"]').click(); await sleep(120); }
     const fopts = await p.locator('#tu-fc-folder option').evaluateAll(os => os.map(o => o.value));
     ok(await p.locator('.tu-first .tu-made.warn [data-act="to-build"]').isVisible() && fopts.includes('') && fopts.includes('R01-교사(Teacher)\\D01-수업(Teaching)') && (await p.locator('[data-act="open-sel"]').count()) === 1, `7 마지막 장면 = 「아직 만들지 않았어요」 + 되돌아가기 · 폴더 고르기에 있던 폴더도 · 「폴더 열기」 (${fopts.slice(0, 4).join(' | ')})`);
     await shot('r-finish-left');
@@ -523,7 +527,7 @@ else {
     await p.locator('[data-nav="next"]').click(); await sleep(500); await p.locator('[data-m="make"]').click();
     await p.waitForSelector('.tu-modal', { state: 'detached', timeout: 30000 }).catch(() => {}); await sleep(300);
     ok(fs.existsSync(path.join(soulR, 'R01-교사(Teacher)', 'D03-연수(Training)', 'AGENTS.md')) && await pno() !== buildNo, '7 「만들고 넘어가기」 = 디스크에 D03-연수(Training) + 규칙 메모 · 다음 장면');
-    for (let i = 0; i < 30 && await pno() !== '44 / 44'; i++) { await p.locator('[data-nav="next"]').click(); await sleep(120); }
+    for (let i = 0; i < 40 && await pno() !== '47 / 47'; i++) { await p.locator('[data-nav="next"]').click(); await sleep(120); }
     ok((await p.locator('#tu-fc-folder').inputValue()) === 'R01-교사(Teacher)\\D03-연수(Training)' && !(await p.locator('.tu-first .tu-made.warn').count()), `7 마지막 장면 = 방금 만든 폴더가 맨 앞 · 경고 없음 (${await p.locator('#tu-fc-folder').inputValue()})`);
     await p.locator('.tu-x').click(); await sleep(400);
     ok(!(await p.locator('#tutorial').isVisible()), '7 만든 뒤 × = 묻지 않고 닫힘');
