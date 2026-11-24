@@ -60,6 +60,7 @@
     "verify:send": "node scripts/check-send.mjs",
     "verify:security": "node scripts/check-security.mjs",
     "verify:canvas": "node scripts/check-canvas.mjs",
+    "verify:round3": "node scripts/check-round3.mjs",
     "verify:docplus": "node scripts/check-docplus.mjs",
     "verify:privacy": "node scripts/check-privacy.mjs",
     "verify:doc2pdf": "node scripts/check-doc2pdf.mjs",

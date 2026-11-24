@@ -114,10 +114,12 @@ export function agentAccounts(receipt = readReceipt()) {
   return out;
 }
 
+let localCount = 0; // 고를 수 있는 로컬 모델 수(server.mjs 가 Ollama 목록을 읽을 때마다)
+export function setLocalCount(n) { const c = localCount !== n; localCount = n; return c; }
 /** 화면이 버튼 옆 안내를 그릴 재료: 계정 수·프로그램 없음·(옛) 잠든 목록. GET /api/agents/status 와 'agents' 방송. */
-export function agentStatus(receipt = readReceipt(), root = soulRoot(), { hasAgy = () => !!agyExe() } = {}) {
+export function agentStatus(receipt = readReceipt(), root = soulRoot(), { hasAgy = () => !!agyExe(), hasLocal = () => localCount > 0 } = {}) {
   // Gemini(P18): 중계기·영수증과 상관없이 이 PC 에 agy 가 깔려 있는지만 본다(구독 로그인은 agy 가 직접 — 계정 수는 판단 안 함)
-  const missing = [...missingAgents(receipt, root), ...(hasAgy() ? [] : ['gemini'])];
+  const missing = [...missingAgents(receipt, root), ...(hasAgy() ? [] : ['gemini']), ...(hasLocal() ? [] : ['local'])];
   return { accounts: agentAccounts(receipt), missing, sleeping: sleepingAgents(receipt) };
 }
 

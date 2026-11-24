@@ -26,8 +26,13 @@ import { DocVersions } from './docversions.mjs';
 import { extractText } from './doctext.mjs';
 import { Templates } from './templates.mjs';
 import { exportDoc } from './export.mjs';
+import { listModels, defaultModel } from './localai.mjs';
+import { Scheduler, SAFE } from './schedule.mjs';
+import { McpKeys } from './mcpkeys.mjs';
+import { makePack, applyPack, badPassword } from './migrate.mjs';
+import * as recordAcl from './recordacl.mjs';
 import { Voice } from './voice.mjs';
-import { activeAgentsMap, sleepingAgents, agentStatus, wake, SleepWatcher, KNOWN_AGENTS } from './wake.mjs';
+import { activeAgentsMap, sleepingAgents, agentStatus, setLocalCount, wake, SleepWatcher, KNOWN_AGENTS } from './wake.mjs';
 import { ModuleHost, NAME_RE } from './modules.mjs';
 import { inspectZip, installZip, removeModule } from './modinstall.mjs';
 import { loadCatalog, mergeCatalog, fetchReleaseZip } from './catalog.mjs';
@@ -130,6 +135,23 @@ models.refreshGemini({ force: true, onChange: () => broadcast(agentsMsg()) }); /
 // Gemini 사용량(P18 2026-11-19): 10분마다 agy /usage 화면을 숨은 터미널로 읽어 stategemini-usage.json — 대시보드 GEMINI 칸·머리줄 배터리. 끄기 = IRIS_FACE_GEMINI_USAGE=0
 const geminiUsage = new GeminiUsage({ stateDir: STATE, agyExe: () => agyExe(childEnv()), agyHome: AGY_HOME, env: () => childEnv(), log: (m) => log(m), intervalMs: process.env.IRIS_FACE_GEMINI_USAGE === '0' ? 0 : 600000 });
 geminiUsage.start();
+// 로컬 AI 목록(Ollama, 이 PC 안): 켜자마자 · 1분마다. 바뀌면 화면 단추·목록을 다시 그리게 한다.
+async function refreshLocal() {
+  const list = await listModels(); const before = JSON.stringify(AGENTS.local.models.map((m) => m.id));
+  const next = list.length ? list.map(({ id, label, actual }) => ({ id, label, actual })) : [{ id: 'none', label: '모델 없음', actual: 'none' }];
+  AGENTS.local.models.splice(0, AGENTS.local.models.length, ...next); if (!next.some((m) => m.id === AGENTS.local.default.model)) AGENTS.local.default.model = defaultModel(list) || next[0].id;
+  if (setLocalCount(list.length) || before !== JSON.stringify(next.map((m) => m.id))) broadcast(agentsMsg());
+}
+refreshLocal().catch(() => {}); setInterval(() => refreshLocal().catch(() => {}), 60_000).unref();
+// 예약 실행(schedule.mjs): 권한은 SAFE 로 고정 — 화면의 「전부 허용」을 따르지 않는다
+const scheduler = new Scheduler({
+  file: path.join(STATE, 'schedules.json'), log: (m) => log(m), broadcast: (o) => broadcast(o),
+  ready: async (agent) => agent === 'gemini' || agent === 'local' || !dashDir() || relayReady(agent),
+  busy: (id) => ['busy', 'attention'].includes(sm.get(id)?.status),
+  run: (x) => { const rec = sm.create({ cwd: x.cwd, agent: x.agent, model: x.model, effort: x.effort, ...SAFE, prompt: x.prompt }); const r = sm.get(rec.id); if (x.owner) r.owner = x.owner; sm.renameByUser(rec.id, `예약 · ${x.name}`); sm.save(); broadcastSessions(); log(`create ${rec.id} (예약) ${rec.cmdline}`); return rec; },
+});
+if (process.env.IRIS_FACE_SCHEDULE !== '0') scheduler.start();
+const RECORD_DIRS = () => [path.join(CLAUDE_CONFIG_DIR, 'projects'), path.join(CODEX_HOME, 'sessions'), STATE];
 try { const n = sweepCache(path.join(STATE, 'doc-cache')); if (n) log(`doc-cache: 오래된 미리보기 ${n}개 정리`); } catch {}
 try { models.refresh({ force: true }); log(`models: claude=${models.info().claude.source} ${AGENTS.claude.models.map((m) => `${m.id}=${m.label}`).join(', ')}`); } catch (e) { log(`models init error: ${e?.message || e}`); }
 setInterval(() => { try { if (models.refresh()) broadcast(agentsMsg()); } catch {} }, 10 * 60_000).unref();
@@ -269,7 +291,7 @@ function buildHandoff(items, rec) {
   }
   let body = lines.join('\n\n');
   if (body.length > 8000) body = '…(앞부분 생략)…\n\n' + body.slice(-8000);
-  const from = `${({ claude: 'Claude', codex: 'Codex', gemini: 'Gemini' })[rec.agent] || rec.agent} ${rec.modelLabel || rec.model}${rec.effort ? ` · ${rec.effort}` : ''}`;
+  const from = `${({ claude: 'Claude', codex: 'Codex', gemini: 'Gemini', local: '로컬 AI' })[rec.agent] || rec.agent} ${rec.modelLabel || rec.model}${rec.effort ? ` · ${rec.effort}` : ''}`;
   return `[이전 대화 이어받기 — ${from} 세션에서 옮겨 옴, 폴더 ${rec.cwd}]\n아래는 지금까지의 대화다. 이미 끝난 작업은 다시 하지 말고, 결정된 내용은 그대로 따른다.\n\n${body || '(이전 대화 없음)'}`;
 }
 
@@ -438,7 +460,7 @@ const server = http.createServer(async (req, res) => {
       catch (e) { return json(res, 500, { error: e.message }); }
     }
     if (req.method === 'GET' && p === '/api/relay/ready') {
-      if (url.searchParams.get('agent') === 'gemini') return json(res, 200, { ready: true, relay: false, agent: 'gemini' }); // Gemini 는 중계기를 거치지 않는다(P18)
+      if (['gemini', 'local'].includes(url.searchParams.get('agent'))) return json(res, 200, { ready: true, relay: false, agent: url.searchParams.get('agent') }); // Gemini 는 중계기를 거치지 않는다(P18)
       const agent = url.searchParams.get('agent') === 'codex' ? 'codex' : 'claude';
       if (!dashDir()) return json(res, 200, { ready: true, relay: false }); // 중계기 도구가 없는 설치 — 확인할 것이 없다
       return json(res, 200, { ready: await relayReady(agent), relay: true, agent });
@@ -460,7 +482,8 @@ const server = http.createServer(async (req, res) => {
       const input = {};
       if (typeof b?.text === 'string') input.text = b.text.slice(0, 20000);
       if (typeof b?.name === 'string') input.name = b.name.slice(0, 60);
-      if (b?.form && typeof b.form === 'object') input.form = Object.fromEntries(['name', 'transport', 'url', 'command', 'args'].map((k) => [k, String(b.form[k] ?? '').slice(0, 2000)]));
+      if (b?.form && typeof b.form === 'object') input.form = Object.fromEntries(['name', 'transport', 'url', 'command', 'args', 'env'].map((k) => [k, String(b.form[k] ?? '').slice(0, 4000)]));
+      if (b?.keys && typeof b.keys === 'object') input.keys = b.keys;
       const agents = [...new Set((Array.isArray(b?.agents) ? b.agents : []).filter((a) => a === 'claude' || a === 'codex'))];
       if (p.endsWith('/preview')) return json(res, 200, tools.previewCustom(input, agents));
       const r = await tools.installCustom(input, agents);
@@ -670,6 +693,40 @@ const server = http.createServer(async (req, res) => {
       if (!file.toLowerCase().startsWith(fs.realpathSync(up).toLowerCase() + path.sep)) return json(res, 403, { error: '첨부한 파일만 볼 수 있습니다' });
       return json(res, 200, await extractText(file, { cacheDir: path.join(STATE, 'doc-cache'), log }));
     }
+    // ---- 예약 실행 ----
+    if (p.startsWith('/api/schedule')) {
+      const owner = profileOf(req) || null;
+      if (req.method === 'GET' && p === '/api/schedule') return json(res, 200, { list: scheduler.info(owner) });
+      if (req.method === 'POST') {
+        const b = await readBody(req);
+        try {
+          if (p === '/api/schedule/save') scheduler.upsert(b, owner); else if (p === '/api/schedule/remove') scheduler.remove(b.id, owner); else if (p === '/api/schedule/answer') await scheduler.answer(b.id, b.go === true, owner); else return json(res, 404, { error: 'not found' });
+          return json(res, 200, { ok: true });
+        } catch (e) { return json(res, 400, { error: e.message }); }
+      }
+    }
+    // ---- 새 PC 로 옮기기 · 기록 폴더 권한 · 윈도 설정 열기 ----
+    if (req.method === 'POST' && p === '/api/migrate/make') {
+      const b = await readBody(req); const pid = profileOf(req); const bad = badPassword(b.password); if (bad) return json(res, 400, { error: bad });
+      try { const r = makePack({ root: WS_ROOT, stateDir: STATE, codexHome: CODEX_HOME, sessions: sm.list().filter((x) => canSee(x, pid)), parts: Array.isArray(b.parts) ? b.parts : [], password: b.password, ...(process.env.IRIS_FACE_EXPORT_DIR ? { outDir: process.env.IRIS_FACE_EXPORT_DIR } : {}) }); log(`migrate make 대화 ${r.count.sessions}`); return json(res, 200, { name: r.name, path: r.file, count: r.count }); } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+    if (req.method === 'POST' && p === '/api/migrate/open') {
+      const chunks = []; let size = 0;
+      try { await new Promise((ok, no) => { req.on('data', (c) => { size += c.length; if (size > 1.2e9) { no(new Error('묶음이 너무 커요.')); req.destroy(); } else chunks.push(c); }); req.on('end', ok); req.on('error', no); }); } catch (e) { return json(res, 400, { error: e.message }); }
+      try {
+        const owner = profileOf(req) || null;
+        const r = applyPack(Buffer.concat(chunks), { password: decodeURIComponent(String(req.headers['x-pack-password'] || '')), root: WS_ROOT, stateDir: STATE, claudeDir: CLAUDE_CONFIG_DIR, codexHome: CODEX_HOME, settings, templates, addSession: (x) => sm.adopt({ ...x, ...(owner ? { owner } : {}) }) });
+        let n = 0; const had = scheduler.info(owner); for (const x of r.scheduleList) { if (had.some((h) => h.name === x.name && h.prompt === x.prompt && h.time === x.time)) continue; // 이미 있는 예약은 겹쳐 만들지 않는다
+          try { scheduler.upsert({ ...x, id: undefined, enabled: false }, owner); n++; } catch {} } delete r.scheduleList; r.schedules = n; sm.save(); broadcastSessions(); log(`migrate open 대화 ${r.sessions}`);
+        return json(res, 200, r);
+      } catch (e) { return json(res, 400, { error: e.message }); }
+    }
+    if (p === '/api/records-acl') {
+      if (req.method === 'GET') return json(res, 200, recordAcl.status(RECORD_DIRS()));
+      if (req.method === 'POST') { const b = await readBody(req); try { const n = recordAcl.setLocked(RECORD_DIRS(), b.on === true); log(`records-acl ${b.on === true} (${n})`); return json(res, 200, recordAcl.status(RECORD_DIRS())); } catch (e) { return json(res, 409, { error: e.message }); } }
+    }
+    if (req.method === 'POST' && p === '/api/open-settings') { const b = await readBody(req); if (b.page !== 'otherusers') return json(res, 400, { error: 'page' }); try { spawn('explorer.exe', ['ms-settings:otherusers'], { detached: true, stdio: 'ignore' }).unref(); return json(res, 200, { ok: true }); } catch (e) { return json(res, 500, { error: e.message }); } }
+    if (req.method === 'POST' && p === '/api/tools/custom/key') { const b = await readBody(req); try { tools.changeKey(String(b.id || ''), String(b.name || ''), String(b.value || '')); return json(res, 200, { ok: true }); } catch (e) { return json(res, 400, { error: e.message }); } }
     // ---- 자주 쓰는 요청 서식함 · 대화 내보내기 ----
     if (p === '/api/templates' && req.method === 'GET') return json(res, 200, { list: templates.get() });
     if (p === '/api/templates' && req.method === 'POST') { const b = await readBody(req); return json(res, 200, { list: templates.set(b.list) }); }

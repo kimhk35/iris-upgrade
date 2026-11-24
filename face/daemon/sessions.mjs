@@ -159,6 +159,11 @@ export class SessionManager {
   save() { const tmp = this.file + '.tmp'; fs.writeFileSync(tmp, JSON.stringify([...this.sessions.values()], null, 2), 'utf8'); fs.renameSync(tmp, this.file); }
   list() { return [...this.sessions.values()]; }
   get(id) { return this.sessions.get(id); }
+  /** 옮겨 온 대화(새 PC 로 옮기기)를 「종료됨」 카드로 더한다. 같은 대화가 이미 있으면 false. */
+  adopt(x) {
+    if ([...this.sessions.values()].some((r) => r.agent === x.agent && r.sessionId === x.sessionId)) return false;
+    const id = `s${++this.seq}`; this.sessions.set(id, { ...x, id, cmdline: '', pid: null, pidAt: 0, status: 'exited', exitCode: 0, lastOutputAt: Date.now(), resumeCmd: '', titlePending: false, lost: false }); return true;
+  }
   buffer(id) { return this.live.get(id)?.buffer || ''; }
 
   /** 새 세션: 폴더 + 에이전트·모델·사고깊이(사용자가 고른 그대로) + 첫 요청문(선택) */
@@ -181,7 +186,7 @@ export class SessionManager {
     this.sessions.set(id, rec);
     this.nameSession(id, prompt);
     // Face 안내문을 첫 요청 앞에 붙인다(새 세션에만; 이어가기는 맥락에 이미 있음)
-    this.wire(id, rec, proc, cols, rows, withFaceNote(prompt));
+    this.wire(id, rec, proc, cols, rows, sel.agent === 'local' ? (prompt || '').trim() : withFaceNote(prompt)); // 안내문은 파일을 다루는 AI 용
     this.watchRecord(id, rec, sel.agent);
     this.save(); this.hooks.onList?.();
     return rec;
@@ -190,7 +195,7 @@ export class SessionManager {
     const env = childEnv();
     // 폴더 신뢰 물음 선답(daemon/trust.mjs, 2026-09-19): CLI 가 이 폴더를 처음 볼 때 묻는 "Do you trust…" 를 미리 "예"로 적어 둔다.
     const agent = cmd.agent || (/^codex\b/i.test(String(cmd.args?.[1] || '')) ? 'codex' : 'claude');
-    const t = preTrust({ agent, cwd, env, fallback: { claudeConfigDir: CLAUDE_CONFIG_DIR, codexHome: CODEX_HOME, agyHome: AGY_HOME } });
+    const t = agent === 'local' ? { result: 'unchanged' } : preTrust({ agent, cwd, env, fallback: { claudeConfigDir: CLAUDE_CONFIG_DIR, codexHome: CODEX_HOME, agyHome: AGY_HOME } });
     if (t.result !== 'unchanged') this.hooks.onLog?.(`[trust] ${agent} ${cwd} → ${t.result}`);
     // 1년 열쇠(v2.84, 2026-10-15 "Login expired" 사고): 살아 있으면 클로드 세션은 30일 /login 열쇠 대신 그것을 쓴다(daemon/auth.mjs).
     if (agent === 'claude') { const k = applyLongKey(env, { configDir: CLAUDE_CONFIG_DIR }); if (k.applied) this.hooks.onLog?.('[auth] long key → session'); }
@@ -243,7 +248,7 @@ export class SessionManager {
     rec.previous = [...(rec.previous || []), { agent: rec.agent, model: rec.model, effort: rec.effort, sessionId: rec.sessionId, recordPath: rec.recordPath, resumeCmd: rec.resumeCmd, until: new Date().toISOString() }];
     Object.assign(rec, sel, { cmdline: cmd.cmdline, pid: proc.pid, pidAt: Date.now(),status: 'busy', exitCode: null, exitReason: null, switchedAt: new Date().toISOString(), sessionId: cmd.sessionId || null, recordPath: cmd.recordPath || null, resumeCmd: cmd.resumeCmd || '' });
     // 다른 에이전트로 새로 띄우는 것이므로 안내문을 이어받기 요청 앞에 붙인다
-    this.wire(id, rec, proc, cols, rows, withFaceNote(prompt));
+    this.wire(id, rec, proc, cols, rows, sel.agent === 'local' ? (prompt || '').trim() : withFaceNote(prompt)); // 안내문은 파일을 다루는 AI 용
     this.watchRecord(id, rec, sel.agent);
     this.save(); this.hooks.onList?.();
     return rec;
@@ -369,6 +374,8 @@ export class SessionManager {
   nameSession(id, prompt) {
     const log = (m) => this.hooks.onLog?.(`${id} ${m}`);
     const rec0 = this.sessions.get(id);
+    // 로컬 AI 대화는 이름도 밖에 묻지 않는다(헤드리스 AI 로 첫 요청이 나가면 안 됨) — 첫 줄로
+    if (rec0?.agent === 'local') { rec0.titlePending = false; if (!this.setTitle(id, titleFromPrompt(prompt), 'first')) { this.save(); this.hooks.onList?.(); } return; }
     generateTitle(prompt, { log, agent: rec0?.agent, model: rec0?.model }).then((t) => {
       const rec = this.sessions.get(id); if (!rec) return;
       rec.titlePending = false;
@@ -546,6 +553,7 @@ export class SessionManager {
   watchRecord(id, rec, agent) {
     if (agent === 'codex') return this.watchCodexRollout(id, rec);
     if (agent === 'gemini') return this.watchGeminiRecord(id, rec);
+    if (agent === 'local') return; // 기록 자리가 정해져 있다
     return this.watchClaudeRecord(id, rec);
   }
   // Gemini(agy, P18 2026-11-19): 대화 번호는 첫 요청 때 agy 가 정하고 기록은 <AGY_HOME>\brain\<번호>\.system_generated\logs\transcript.jsonl.

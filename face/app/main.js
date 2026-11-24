@@ -24,7 +24,7 @@
     if (v === 'delegated') return `${SubPanel.running(s.id) ? STATUS_KO.delegated : '배경 작업 중'} ⁺${liveN(s.id)}`;
     return v === 'waiting' ? `${STATUS_KO[v]} ⁺${SubPanel.alive(s.id)}` : (STATUS_KO[v] || v);
   };
-  const AGENT_KO = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini' };
+  const AGENT_KO = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini', local: '로컬 AI' };
   let sessions = [], current = null, ws = null, term = null, fit = null, mode = 'chat', AGENTS = null, ACCT = null;
   let folder = null;                 // 새 요청 모드에서 고른 폴더
   let setupMode = 'new';             // 'new' = 새 세션 조합 / 'switch' = 열린 세션의 조합 바꾸기
@@ -76,10 +76,10 @@
   // 권한 기본값은 설정(⚙ → 권한 기본값)에서 온다
   function currentSel() { const st = Settings.get(); return { agent: sel.agent, model: sel.model[sel.agent], effort: sel.effort[sel.agent], permission: sel.agent === 'claude' ? (st.permission || '') : '', approval: sel.agent === 'codex' ? (st.approval || '') : '', sandbox: sel.agent === 'codex' ? (st.sandbox || '') : '', mode: sel.agent === 'gemini' ? (st.geminiMode ?? 'bypass') : '' }; } // Gemini 기본 = 다른 AI 와 같은 「전부 허용」(P18)
   const fill = (el, list, val) => { el.innerHTML = list.map(o => `<option value="${esc(o.id)}">${esc(o.label)}</option>`).join(''); el.value = val ?? ''; };
-  const AGENT_NAME = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini' };
+  const AGENT_NAME = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini', local: '로컬 AI' };
   // v2.96.2(2026-10-27 사용자 결정, 옛 v2.76 한 줄 안내 대체): 입력창 위 긴 안내 글은 없앴다. 프로그램이 없거나 계정이 0개인
   // 에이전트 버튼은 **비활성**(누를 수 없음) + 마우스를 올리면 짧은 말풍선. 고른 쪽이 꺼지면 켜진 쪽으로 옮긴다. 둘 다 꺼지면 막지 않는다(할 수 있는 게 없어짐).
-  const OFF_TIP = { missing: '프로그램 없음 — IRIS 설치 파일을 다시 실행하면 받습니다', account: '계정 연결 안 됨 — 대시보드에서 계정을 추가하면 켜집니다', gemini: 'Gemini 프로그램(agy) 없음 — IRIS 설치 파일을 다시 열어 구독 고르기에서 「Google AI Pro(Gemini)」를 고르면 받고 구글 로그인까지 합니다' };
+  const OFF_TIP = { local: '로컬 AI 프로그램(Ollama)이 꺼져 있거나 받은 모델이 없음 — 무료 · 이 컴퓨터 안에서만 도는 대화 전용 AI', missing: '프로그램 없음 — IRIS 설치 파일을 다시 실행하면 받습니다', account: '계정 연결 안 됨 — 대시보드에서 계정을 추가하면 켜집니다', gemini: 'Gemini 프로그램(agy) 없음 — IRIS 설치 파일을 다시 열어 구독 고르기에서 「Google AI Pro(Gemini)」를 고르면 받고 구글 로그인까지 합니다' };
   function agentOff() {
     const off = {};
     for (const k of ACCT?.missing || []) if (AGENTS[k]) off[k] = 'missing';
@@ -93,7 +93,7 @@
     for (const b of document.querySelectorAll('.seg-agent .seg-btn')) {
       const k = b.dataset.agent; b.hidden = !AGENTS[k];
       // disabled 속성 대신 aria-disabled + 누름 무시: disabled 버튼은 마우스 사건을 안 받아 말풍선이 안 뜰 수 있다
-      b.setAttribute('aria-disabled', off[k] ? 'true' : 'false'); b.classList.toggle('no-account', !!off[k]); b.title = off[k] ? `${AGENT_NAME[k] || k} · ${OFF_TIP[k === 'gemini' && off[k] === 'missing' ? 'gemini' : off[k]]}` : '';
+      b.setAttribute('aria-disabled', off[k] ? 'true' : 'false'); b.classList.toggle('no-account', !!off[k]); b.title = off[k] ? `${AGENT_NAME[k] || k} · ${OFF_TIP[(k === 'gemini' || k === 'local') && off[k] === 'missing' ? k : off[k]]}` : '';
     }
     if (!AGENTS[sel.agent] || (off[sel.agent] && setupMode !== 'switch')) { const on = Object.keys(AGENTS).find(k => !off[k]); if (on && on !== sel.agent) { sel.agent = on; saveSel(); } }
     const a = AGENTS[sel.agent];
@@ -127,6 +127,8 @@
     const s = cur(); if (!s) return; const c = currentSel();
     const to = `${AGENT_KO[c.agent]} ${$('#sel-model').selectedOptions[0]?.textContent}${effTxt(c.effort)}`;
     const cross = c.agent !== s.agent;
+    // 로컬 AI 대화를 다른 AI 로 이어 가면 앞 대화가 밖으로 나간다 — 모르고 하지 않게
+    if (cross && s.agent === 'local' && !(await Dialog.confirm(`이 대화는 지금까지 이 컴퓨터 안에만 있었어요.\n${AGENT_NAME[c.agent] || c.agent}(으)로 이어 가면 앞 대화 내용이 AI 회사 서버로 보내져요. 계속할까요?`, { okLabel: '보내고 이어 가기', danger: true }))) return;
     if (!cross && !s.sessionId) { await Dialog.alert('첫 메시지를 보낸 뒤에 바꿀 수 있습니다.'); return; }
     const msg = cross
       ? `${AGENT_KO[s.agent]} → ${to}\n\n다른 에이전트라 같은 세션을 그대로 잇지는 못하고, 지금까지의 대화를 글로 묶어 새 ${AGENT_KO[c.agent]} 세션의 첫 요청으로 넘깁니다(최근 8천 자). 계속할까요?`
@@ -168,6 +170,7 @@
       else if (m.type === 'status') { const s = sessions.find(x => x.id === m.id); if (s) { s.status = m.status; render(); if (m.id === current) Transcript.setBusy(m.status === 'busy'); Notify.onStatus(m, s, liveN(m.id)); } }
       else if (m.type === 'replay') { if (m.id === current && term) { term.reset(); term.write(m.data); } }
       else if (m.type === 'output') { if (m.id === current && term) term.write(m.data); }
+      else if (m.type === 'schedule') Schedule.onChange();
       else if (m.type === 'transcript') { if (m.id === current) { if (m.reset) Transcript.render(m.items, m.meta); else Transcript.append(m.items, m.meta); afterTranscript(m.meta); Canvas.onItems(m.id, m.items, !!m.reset, cur()?.cwd); } }
       else if (m.type === 'activity') { if (m.id === current) { const s = cur(); if (s?.status === 'busy') Transcript.setBusy(true, m.text); } }
       else if (m.type === 'prompt') { const s = sessions.find(x => x.id === m.id); if (s) { s.prompt = m.prompt; if (m.id === current) Approval.render(s); } } // 확인 카드(v2.43): 노란불의 질문·선택지
@@ -649,7 +652,7 @@
     const ms = LocalUse.status(s?.agent || currentSel().agent);
     if (ms.over && !(await Dialog.confirm('', { title: '내 몫을 넘었어요', html: `<p>이 계정을 <b>${LocalUse.people()}명</b>이 나눠 쓰고 있어요. 한 사람 몫은 한도의 ${LocalUse.P(ms.quota)}인데, 이 PC 는 주간 <b>${LocalUse.P(ms.s.mineWeek)}</b> · 5시간 <b>${LocalUse.P(ms.s.mine5h)}</b>를 썼어요.</p><p>더 쓰면 다른 선생님들이 쓸 양이 줄어듭니다. 그래도 보낼까요?</p>`, okLabel: '그래도 보내기' }))) return;
     // 개인정보 확인(P18 2026-11-24 사용자 선택 4번): 글만 이 화면에서 검사, 막지 않고 고르게 — 가린 글은 요청문·이력 모두 가린 채로
-    if (Settings.get().privacyCheck !== false) {
+    if (Settings.get().privacyCheck !== false && (s?.agent || currentSel().agent) !== 'local') { // 로컬 AI 는 이 컴퓨터 밖으로 나가지 않는다
       btn.disabled = true; let safe; const busyTip = setTimeout(() => { $('#attach-list').insertAdjacentHTML('beforeend', '<span class="attach" id="pv-busy">첨부 살피는 중…</span>'); }, attachments.length ? 400 : 1e9);
       try { safe = await PrivacyCheck.checkAll(typed, attachments.slice()); } catch (e) { Dialog.alert(e.message); return; } finally { clearTimeout(busyTip); $('#pv-busy')?.remove(); btn.disabled = false; }
       if (safe == null) { ta.focus(); return; }
@@ -686,7 +689,7 @@
     const fmt = (t) => t >= 1e6 ? (t / 1e6).toFixed(1) + 'M' : t >= 1e3 ? Math.round(t / 1e3) + 'K' : String(t);
     const P = (v) => `${Math.round((v || 0) * 100)}%`;
     const people = () => Math.max(1, Number(Settings.get().sharePeople) || 1);
-    const provOf = (agent) => (agent === 'codex' ? 'codex' : agent === 'gemini' ? null : 'anthropic'); // Gemini 는 중계기 밖(공유 몫 계산 없음)
+    const provOf = (agent) => (agent === 'codex' ? 'codex' : agent === 'gemini' || agent === 'local' ? null : 'anthropic'); // Gemini 는 중계기 밖(공유 몫 계산 없음)
     const agentNow = () => cur()?.agent || sel?.agent || 'claude';
     /** 그 에이전트 계정에서 내 몫을 넘었나 → { over, week, h5, quota } (사람 수 1 이거나 측정값 없으면 over=false) */
     function status(agent = agentNow()) {
@@ -967,6 +970,8 @@
     render(); const ta2 = $('#composer-text'); ta2.value = text; ta2.dispatchEvent(new Event('input', { bubbles: true })); ta2.focus(); ta2.setSelectionRange(ta2.value.length, ta2.value.length);
   } });
   Templates.init({ composer: $('#composer-text') });
+  Schedule.init({ agents: () => AGENTS, headers: () => Profile.headers(), cwd: () => cur()?.cwd || folder?.path || '', draft: () => $('#composer-text').value.trim() });
+  Migrate.init({ headers: () => Profile.headers() });
   ChatExport.init({ current: () => (cur() && !cur().locked ? cur() : null), headers: () => Profile.headers() });
   Search.init({ headers: () => Profile.headers(), onPick: (id, i) => {
     if (!sessions.some((x) => x.id === id)) return Dialog.alert('이 대화는 목록에서 지워졌어요.');

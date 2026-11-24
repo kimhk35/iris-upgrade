@@ -12,6 +12,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { soulRoot } from './paths.mjs';
+import { NAME_RE as LOCAL_NAME_RE } from './localai.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CLAUDE_CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(soulRoot(), '_agent', 'claude');
@@ -102,6 +103,9 @@ export const AGENTS = {
     ],
   },
 };
+// P18(2026-11-24 고도화 11번) 로컬 AI = 이 PC 의 Ollama, 대화 전용(daemon/localchat.mjs). 목록 = daemon/localai.mjs(클라우드 모델 제외). 모델이 없으면 단추가 잠긴다.
+AGENTS.local = { label: '로컬', models: [{ id: 'none', label: '모델 없음', actual: 'none' }], efforts: [], default: { model: 'none', effort: '' } };
+export const LOCAL_DIR = path.join(STATE, 'local-chats');
 /** agy 실행 파일(공식 설치 위치 → PATH 의 agy). 없으면 null — Gemini 단추가 잠든다. */
 export function agyExe(env = process.env) {
   const local = path.join(env.LOCALAPPDATA || '', 'agy', 'bin', 'agy.exe');
@@ -133,7 +137,7 @@ export function normalize(sel = {}) {
   if (agent === 'codex' && !sandbox && sel.readOnly) sandbox = 'read-only'; // 예전 필드 호환
   const readOnly = sandbox === 'read-only';
   // modelActual = CLI 에 실제로 넘기는 정확한 모델 이름(클로드 별칭이 풀린 값, 코덱스는 그대로). 모르면 null(판 번호 없는 이름일 때).
-  const modelActual = modelInfo.actual !== undefined ? modelInfo.actual : (agent === 'codex' || agent === 'gemini' ? model : null);
+  const modelActual = modelInfo.actual !== undefined ? modelInfo.actual : (agent === 'codex' || agent === 'gemini' || agent === 'local' ? model : null);
   // 재개가 쓰던 정확한 클로드 모델을 지키는 경우(keepResumeModel) — 다시 정규화(buildCommand)해도 그 모델·이름 그대로
   if (sel.keepActual && typeof sel.modelActual === 'string' && /^(claude-[a-z0-9-]+|gpt-[a-z0-9.-]+)$/.test(sel.modelActual) && sel.modelActual.startsWith(agent === 'claude' ? 'claude-' : 'gpt-')) {
     return { agent, model: sel.model || model, modelLabel: sel.modelLabel || sel.modelActual, modelActual: sel.modelActual, keepActual: true, effort, permission, approval, sandbox, readOnly };
@@ -165,12 +169,14 @@ export function modelForResume(rec) {
 export function keepResumeModel(sel, rec) {
   if (!rec?.modelActual || sel.modelActual === rec.modelActual || rec.agent !== sel.agent) return sel;
   // Gemini(agy) 는 모델 이름 꼴이 여럿(gemini-…·claude-…·gpt-oss-…) — agy 가 정확한 이름을 그대로 받으므로 쓰던 이름 그대로 이어 간다
+  if (sel.agent === 'local') return LOCAL_NAME_RE.test(rec.modelActual) ? { ...sel, model: rec.model, modelActual: rec.modelActual, modelLabel: rec.modelLabel || rec.modelActual } : sel;
   if (sel.agent === 'gemini') return /^[a-z0-9][a-z0-9.-]{2,80}$/.test(rec.modelActual) ? { ...sel, model: rec.model, modelActual: rec.modelActual, modelLabel: rec.modelLabel || rec.modelActual } : sel;
   if (!/^(claude-[a-z0-9-]+|gpt-[a-z0-9.-]+)$/.test(rec.modelActual) || !rec.modelActual.startsWith(sel.agent === 'claude' ? 'claude-' : 'gpt-')) return sel;
   return { ...sel, model: rec.model, modelActual: rec.modelActual, modelLabel: rec.modelLabel || rec.modelActual, keepActual: true };
 }
 /** 권한 표시용 짧은 말 */
 export function permLabel(s) {
+  if (s.agent === 'local') return '이 PC 안에서만';
   if (s.agent === 'gemini') return s.mode ? (AGENTS.gemini.modes.find(p => p.id === s.mode)?.label || s.mode) : '';
   if (s.agent === 'claude') return [...(isFastClaude(s.model, s.modelActual) ? ['⚡ fast'] : []), ...(s.permission ? [(AGENTS.claude.permissions.find(p => p.id === s.permission)?.label || s.permission).replace('권한: ', '')] : [])].join(' · ');
   const parts = ['⚡ fast']; if (s.approval) parts.push(AGENTS.codex.approvals.find(p => p.id === s.approval)?.label);
@@ -184,6 +190,11 @@ export const claudeProjectSlug = (cwd) => cwd.replace(/[^A-Za-z0-9]/g, '-');
 /** @returns {{ file:string, args:string[], sessionId?:string, recordPath?:string, resumeCmd:string, cmdline:string }} */
 export function buildCommand(sel, cwd, { resumeId } = {}) {
   const s = normalize(sel);
+  if (s.agent === 'local') {
+    const model = s.modelActual || s.model; if (model === 'none' || !LOCAL_NAME_RE.test(model)) throw new Error('로컬 AI 모델이 없어요. Ollama 를 켜고 모델을 받아 주세요.');
+    const sessionId = resumeId || randomUUID(), recordPath = path.join(LOCAL_DIR, `${sessionId}.jsonl`);
+    return { file: process.execPath, args: [path.join(ROOT, 'daemon', 'localchat.mjs'), '--model', model, '--session', sessionId, '--record', recordPath], agent: 'local', sessionId, recordPath, resumeCmd: '', cmdline: `로컬 AI ${model}` };
+  }
   if (s.agent === 'gemini') {
     const exe = agyExe() || 'agy';
     const modeArgs = s.mode === 'bypass' ? ['--dangerously-skip-permissions'] : (s.mode ? ['--mode', s.mode] : []);

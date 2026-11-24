@@ -1102,6 +1102,13 @@ button.tl-pill[aria-pressed="true"] { border-color: var(--iris); background: var
 .tl-prev { white-space: pre-wrap; line-height: 1.65; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); overflow-wrap: anywhere; } .tl-prev mark { background: var(--iris-soft); color: var(--ink); border-radius: 3px; padding: 0 2px; } .tl-none { color: var(--ink-3); }
 .ex-prev { background: #fff; color: #222; border-radius: 6px; padding: 10px 14px; line-height: 1.6; max-height: 150px; overflow: hidden; } .ex-prev p { margin: 3px 0; } .ex-note { margin: 8px 0 0; font-size: 11.5px; color: var(--ink-3); } .ex-hide { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; cursor: pointer; }
 .pv-list li.pv-file { grid-template-columns: minmax(0, 1fr) auto; } .pv-h { margin: 12px 0 0; font-size: 12px; color: var(--ink-3); } .pv-n { margin: 10px 0 0; font-size: 12px; color: var(--ink-2); white-space: normal; }
+/* 로컬 AI · 예약 · 옮기기 · MCP 열쇠(P18 2026-11-24 3차) */
+.seg-agent .seg-btn[data-agent="local"].active { color: #ffd08a; } .chip.local { color: #ffd08a; border-color: rgba(255,208,138,.35); }
+:root:is([data-iris-theme="ivory"], [data-iris-theme="mist"], [data-iris-theme="paper"]) :is(.chip.local, .seg-agent .seg-btn[data-agent="local"].active) { color: #8a5200; }
+.sch-err { color: var(--bad) !important; } .sch-form { padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 10px; margin: 8px 0; } .sch-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; } .sch-days { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; } .sch-days small { color: var(--ink-3); font-size: 11.5px; } .sch-add { padding: 8px 0; }
+.mg-parts { gap: 12px; flex-wrap: wrap; font-size: 12.5px; } .mg-parts label { display: inline-flex; gap: 5px; align-items: center; } .mg-line { flex-wrap: wrap; justify-content: flex-end; } .mg-line .tl-in { width: 128px; margin: 0; } .mg-line input[type=file] { max-width: 210px; font-size: 12px; color: var(--ink-2); }
+.mg-ol { margin: 8px 0; padding-left: 20px; line-height: 1.75; white-space: normal; } .mg-note { font-size: 12.5px; color: var(--ink-3); white-space: normal; } .dlg-msg p { white-space: normal; margin: 4px 0; }
+.tl-cm-keys { margin-top: 8px; } .tl-cm-keys small { display: block; font-size: 11.5px; color: var(--ink-3); line-height: 1.55; margin-top: 4px; }
 .cv-work { animation: none !important; opacity: 1; }
 .cv-wait { position: absolute; inset: 0; display: grid; place-items: center; background: var(--base); }
 .cv-note { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px; background: var(--raised); }

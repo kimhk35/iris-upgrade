@@ -476,7 +476,7 @@ const LEDGER = (w) => readJ(path.join(w.root, '_agent', 'setup', 'tools-installe
   const lone = parseCustomMcp({ text: String.raw`{"mcpServers":{"lone-slash":{"command":"npx","args":["-y","pkg","C:\Temp\자료"]}}}` });
   ok(lone.ok && lone.items[0].args[2] === String.raw`C:\Temp\자료`, '내 MCP 읽기: 경로 역슬래시를 하나로 적은 흔한 실수도 읽음');
   ok(parseCustomMcp({ text: String.raw`{"mcpServers":{"nl-keep":{"command":"node","args":["a\nb"]}}}` }).items[0].args[0] === 'a\nb', '내 MCP 읽기: 올바른 JSON 이스케이프(\\n)는 그대로');
-  ok(!parseCustomMcp({ text: '{"mcpServers":{"gh-test":{"command":"npx","args":["x"],"env":{"GITHUB_TOKEN":"abc"}}}}' }).ok, '내 MCP 읽기: env 키 있으면 거절(첫 판)');
+  { const g = parseCustomMcp({ text: '{"mcpServers":{"gh-test":{"command":"npx","args":["x"],"env":{"GITHUB_TOKEN":"abc-SECRET"}}}}' }); ok(g.ok && g.items[0].keyNames[0] === 'GITHUB_TOKEN' && !JSON.stringify(g).includes('SECRET'), '내 MCP 읽기: 열쇠(env)는 받되 값은 실리지 않음(2026-11-24 고도화 12번)'); }
   ok(!parseCustomMcp({ text: '{"mcpServers":{"hdr-test":{"url":"https://x.example/mcp","headers":{"Authorization":"Bearer x"}}}}' }).ok, '내 MCP 읽기: headers 키 있으면 거절');
   ok(!parseCustomMcp({ text: '{"mcpServers":{"key-test":{"command":"node","args":["s.js","--api-key","zz"]}}}' }).ok, '내 MCP 읽기: 인자에 키 낱말 있으면 거절');
   ok(!parseCustomMcp({ text: '{"mcpServers":{"amp-test":{"command":"node","args":["a&calc"]}}}' }).ok, '내 MCP 읽기: 위험 글자(&) 거절');
@@ -511,6 +511,20 @@ const LEDGER = (w) => readJ(path.join(w.root, '_agent', 'setup', 'tools-installe
   ok(rm1.ok && rm1.deferred && readJ(path.join(w.claudeDir, '.claude.json')).mcpServers['my-files'], '내 MCP 빼기: 세션 열려 있으면 「제거 대기」');
   w.setLive(0); await w.tm.processPending();
   ok(!readJ(path.join(w.claudeDir, '.claude.json')).mcpServers['my-files'] && !/my-files/.test(w.toml()) && !readJ(path.join(w.root, '_agent', 'setup', 'tools-installed.json')).items['my-files'], '내 MCP 빼기: 세션 0 이면 두 쪽 다 지우고 장부에서도 뺌');
+
+  // 열쇠가 든 내 MCP: AI 설정·장부에는 실행기만, 열쇠 파일에는 잠긴 값만(2026-11-24)
+  {
+    const { McpKeys } = await import('../daemon/mcpkeys.mjs'); const kf = path.join(w.root, '_agent', 'setup', 'mcp-keys.json');
+    w.tm.runner = 'C:\\IRIS\\mcprun.mjs'; w.tm.keys = new McpKeys({ file: kf, crypt: { lock: (s) => Buffer.from(s).reverse().toString('base64'), open: (s) => Buffer.from(s, 'base64').reverse().toString('utf8') } });
+    const txt = '{"mcpServers":{"weather":{"command":"npx","args":["-y","w"],"env":{"API_KEY":"SECRET-123"}}}}';
+    const kr = await w.tm.installCustom({ text: txt }, ['claude', 'codex']); const files = [path.join(w.claudeDir, '.claude.json'), path.join(w.root, '_agent', 'setup', 'tools-installed.json'), kf].map((f) => fs.readFileSync(f, 'utf8')).join('') + w.toml();
+    ok(kr.ok && !files.includes('SECRET-123'), '열쇠 MCP 추가: 설정·장부·열쇠 파일 어디에도 값이 그대로 없음');
+    ok(readJ(path.join(w.claudeDir, '.claude.json')).mcpServers.weather.args.join(' ') === 'C:\\IRIS\\mcprun.mjs weather' && w.tm.keys.open('weather').env.API_KEY === 'SECRET-123' && w.tm.keys.open('weather').command === 'npx', '열쇠 MCP 추가: 실행기로 등록, 진짜 명령·열쇠는 보관');
+    const cs = w.tm.status().custom.find((x) => x.id === 'weather'); ok(cs.program === 'npx' && cs.keyNames.join() === 'API_KEY' && !JSON.stringify(cs).includes('SECRET'), '열쇠 MCP 상태: 이름만 보임');
+    w.tm.changeKey('weather', 'API_KEY', 'NEW-9'); ok(w.tm.keys.open('weather').env.API_KEY === 'NEW-9', '열쇠 MCP: 바꾸기');
+    ok(!(await w.tm.installCustom({ text: txt.replace('weather', 'w-two').replace('SECRET-123', '<KEY>') }, ['claude'])).ok && !w.tm.keys.has('w-two'), '열쇠 MCP: 빈 열쇠면 추가 안 됨');
+    const rk = await w.tm.remove('weather'); w.tm.status(); ok(rk.ok && !w.tm.keys.has('weather') && !readJ(path.join(w.claudeDir, '.claude.json')).mcpServers.weather, '열쇠 MCP 빼기: 열쇠도 지워짐');
+  }
 
   // 코덱스 쪽이 실패하면 클로드에 넣은 것도 되돌린다
   w.failOn.add('codex mcp get');

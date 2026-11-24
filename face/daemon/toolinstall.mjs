@@ -14,6 +14,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import net from 'node:net';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { McpKeys, checkKeyName, isPlaceholder } from './mcpkeys.mjs';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { loadToolCatalog, TOOL_CATALOG_FILE, extractSubtree, treeHash, treeHashDir, writeTreeAtomic } from './toolcatalog.mjs';
@@ -102,7 +104,7 @@ export function codexMcpDef(toml, name) {
 export function canonicalMcpDef(agent, url) { return JSON.stringify(sortDeep(agent === 'claude' ? { type: 'http', url } : { url })); }
 
 // ── 내 MCP(맞춤 MCP, P18 고도화 2026-11-10): 사용자가 붙여 넣은 설정 글 또는 칸 입력을 읽어 검사한다 ──
-//   · 첫 판은 키(비밀번호)가 필요 없는 것만 받는다 — env·headers 가 있거나 주소·인자에 키처럼 보이는 낱말이 있으면 거절.
+//   · 열쇠(env)는 이 PC 에서 실행하는 것만 받아 DPAPI 로 잠근다(mcpkeys.mjs, 2026-11-24 고도화 12번). headers·주소·인자 속 열쇠는 여전히 거절.
 //   · 방식 = http(인터넷 주소, https 또는 이 PC 의 localhost) · stdio(이 PC 에서 실행). sse 는 받지 않는다.
 //   · 이름은 영어 소문자·숫자·- 로 바꿔 쓴다(설정 파일 키와 API 경로에 그대로 쓰이므로).
 export const MCP_ID_RE = /^[a-z0-9][a-z0-9-]{1,48}$/;
@@ -114,12 +116,16 @@ export function splitArgs(s) { return String(s || '').trim().split(/\s+/).filter
 /** 실제로 띄울 명령: npx 같은 것은 cmd /c 로 감싼다(클로드·코덱스 모두 .cmd 를 직접 못 띄움). */
 export function launchOf(spec) { return WRAP_RE.test(spec.command) ? { command: 'cmd', args: ['/c', spec.command, ...spec.args] } : { command: spec.command, args: spec.args }; }
 
-function checkEntry(rawName, v) {
+function checkEntry(rawName, v, given = null) {
   const errs = [];
   const id = normalizeMcpId(rawName);
   if (!MCP_ID_RE.test(id)) errs.push('이름은 영어·숫자로 두 글자 이상이어야 합니다');
   if (!v || typeof v !== 'object' || Array.isArray(v)) return { id, name: rawName, errors: ['설정 모양이 아닙니다'] };
-  if (v.env && typeof v.env === 'object' && Object.keys(v.env).length) errs.push(`키(환경 변수 ${Object.keys(v.env).slice(0, 3).join(', ')})가 필요한 MCP 는 아직 받지 않습니다`);
+  const env = v.env && typeof v.env === 'object' && !Array.isArray(v.env) ? v.env : {}; const keyNames = Object.keys(env), vals = {};
+  if (keyNames.length > 12) errs.push('열쇠는 12개까지만 받습니다');
+  for (const k of keyNames) { const why = checkKeyName(k); if (why) errs.push(why); else { const val = given?.[k] ?? env[k]; if (!isPlaceholder(val)) { if (/[\r\n\0]/.test(String(val)) || String(val).length > 8000) errs.push(`${k} 값에 쓸 수 없는 글자가 있습니다`); else vals[k] = String(val).trim(); } } }
+  const needs = keyNames.filter((k) => !(k in vals));
+  if (keyNames.length && (v.url || /http|sse/i.test(String(v.type || v.transport || '')))) errs.push('인터넷 주소로 연결하는 MCP 의 열쇠는 아직 받지 않습니다');
   if (v.headers && typeof v.headers === 'object' && Object.keys(v.headers).length) errs.push('머리글(headers)에 키를 넣는 MCP 는 아직 받지 않습니다');
   const type = String(v.type || v.transport || '').toLowerCase();
   let spec;
@@ -138,7 +144,8 @@ function checkEntry(rawName, v) {
     if (!command) errs.push('실행 명령이 비었습니다');
     spec = { transport: 'stdio', command, args: args || [] };
   } else errs.push('주소(url)도 실행 명령(command)도 없습니다');
-  return { id, name: String(rawName), ...spec, errors: errs };
+  const out = { id, name: String(rawName), ...spec, errors: errs, ...(keyNames.length ? { keyNames, needs } : {}) };
+  Object.defineProperty(out, KEYS, { value: vals, enumerable: false }); return out;
 }
 
 /** 입력 = { text } (붙여 넣은 설정 글) 또는 { form: { name, transport, url, command, args } }. 결과 = { ok, items, errors }. 부작용 없음. */
@@ -163,24 +170,28 @@ export function parseCustomMcp(input = {}) {
     } else entries = Object.entries(j).filter(([, v]) => v && typeof v === 'object');
   } else if (input.form && typeof input.form === 'object') {
     const f = input.form;
-    const v = f.transport === 'http' ? { url: f.url } : { command: f.command, args: splitArgs(f.args) };
+    const env = Object.fromEntries(String(f.env || '').split(/[\s,]+/).filter(Boolean).map((k) => [k, '']));
+    const v = f.transport === 'http' ? { url: f.url } : { command: f.command, args: splitArgs(f.args), ...(Object.keys(env).length ? { env } : {}) };
     entries = [[f.name || '', v]];
   } else return { ok: false, items: [], errors: ['붙여 넣은 글이나 적은 칸이 없습니다'] };
   if (!entries.length) return { ok: false, items: [], errors: ['설정 글에서 MCP 를 찾지 못했습니다'] };
   if (entries.length > 10) return { ok: false, items: [], errors: ['한 번에 10개까지만 추가할 수 있습니다'] };
-  const items = entries.map(([n, v]) => checkEntry(n, v));
+  const given = input.keys && typeof input.keys === 'object' ? input.keys : {};
+  const items = entries.map(([n, v]) => checkEntry(n, v, given[normalizeMcpId(n)]));
   const seen = new Set();
   for (const it of items) { if (seen.has(it.id)) it.errors.push('같은 이름이 두 번 나옵니다'); seen.add(it.id); }
   return { ok: items.every((x) => !x.errors.length) && !errors.length, items, errors };
 }
 
+const KEYS = Symbol('mcp-keys'); // 열쇠 값 — 기호 속성이라 JSON(화면·장부·로그)에 실리지 않는다
 export class ToolManager {
   /**
    * root 영혼 폴더 · claudeDir CLAUDE_CONFIG_DIR · codexDir CODEX_HOME
    * run (exe, args, {timeoutMs}) => {code,out,err}(시험은 가짜) · fetchImpl codeload zip 받기 · cacheDir zip 보관
    * liveSessions () => 살아 있는 세션 수(이 수가 0 일 때만 실제 제거·휴지 비우기)
    */
-  constructor({ root, claudeDir, codexDir, catalogFile = TOOL_CATALOG_FILE, cacheDir, run, fetchImpl = globalThis.fetch, log = () => {}, broadcast = () => {}, liveSessions = () => 0, now = () => Date.now() }) {
+  constructor({ root, claudeDir, codexDir, catalogFile = TOOL_CATALOG_FILE, cacheDir, run, fetchImpl = globalThis.fetch, log = () => {}, broadcast = () => {}, liveSessions = () => 0, now = () => Date.now(), keys = null, runner = path.join(path.dirname(fileURLToPath(import.meta.url)), 'mcprun.mjs') }) {
+    this.keys = keys || new McpKeys({ file: path.join(root, '_agent', 'setup', 'mcp-keys.json') }); this.runner = runner;
     Object.assign(this, { root, claudeDir, codexDir, catalogFile, run, fetchImpl, log, broadcast, liveSessions, now });
     this.cacheDir = cacheDir || path.join(root, '_agent', 'setup', 'tools-cache');
     this.ledgerFile = path.join(root, '_agent', 'setup', 'tools-installed.json');
@@ -523,10 +534,11 @@ export class ToolManager {
       if (why) it.errors.push(why);
       it.conflicts = agents.filter((a) => this.mcpDef(a, it.id) !== null || this.mcpUrl(a, it.id) !== null);
       if (it.conflicts.length) it.errors.push(`${it.conflicts.map((a) => (a === 'codex' ? 'Codex' : 'Claude')).join('·')}에 같은 이름의 MCP 가 이미 있습니다 — 덮지 않습니다`);
+      if (it.keyNames?.length && [process.execPath, this.runner].some((x) => META_RE.test(x))) it.errors.push('IRIS 가 깔린 자리의 이름에 쓸 수 없는 글자가 있어 열쇠를 넣을 수 없습니다');
       if (it.transport === 'stdio') { const r = launchOf(it); it.runs = [r.command, ...r.args].join(' '); }
     }
     if (!agents.length) p.errors.push('쓸 곳(Claude·Codex)을 하나 이상 고르세요');
-    p.ok = !p.errors.length && p.items.length > 0 && p.items.every((x) => !x.errors.length);
+    p.ok = !p.errors.length && p.items.length > 0 && p.items.every((x) => !x.errors.length && !x.needs?.length);
     return p;
   }
   customTaken(id) {
@@ -549,7 +561,9 @@ export class ToolManager {
   }
   async installOneCustom(it, agents) {
     const id = it.id;
-    const custom = it.transport === 'http' ? { transport: 'http', url: it.url } : { transport: 'stdio', command: it.command, args: it.args };
+    const keyed = it.keyNames?.length > 0;
+    const custom = it.transport === 'http' ? { transport: 'http', url: it.url } : keyed ? { transport: 'stdio', command: process.execPath, args: [this.runner, id], keyed: true, program: it.command } : { transport: 'stdio', command: it.command, args: it.args };
+    if (keyed) { try { this.keys.set(id, { command: it.command, args: it.args }, it[KEYS]); } catch (e) { return { ok: false, error: e.message }; } }
     const led = this.ledger();
     led.items[id] = { kind: 'mcp', custom, state: 'installing', want: agents, startedAt: new Date(this.now()).toISOString(), agents: {} };
     this.saveLedger(led);
@@ -578,11 +592,16 @@ export class ToolManager {
   }
   /** 화면용: 장부의 내 MCP 목록(키 값은 애초에 받지 않으므로 실을 비밀이 없다 — 인자는 명령 이름만). */
   customStatus() {
+    try { if (!this.busy) this.pruneKeys(); } catch {}
     return Object.entries(this.ledger().items).filter(([, r]) => r.custom).map(([id, r]) => ({
-      id, transport: r.custom.transport, url: r.custom.transport === 'http' ? r.custom.url : '', program: r.custom.command ? path.basename(r.custom.command) : '',
+      id, transport: r.custom.transport, url: r.custom.transport === 'http' ? r.custom.url : '', program: r.custom.program ? path.basename(r.custom.program) : r.custom.command ? path.basename(r.custom.command) : '', keyNames: r.custom.keyed ? this.keys.names(id) : [],
       agents: Object.keys(r.agents || {}), state: r.state, removeRequested: !!r.removeRequested, error: r.error || this.lastError[id] || null,
     }));
   }
+  /** 저장한 열쇠 하나 바꾸기 — 다음에 여는 세션부터 쓰인다. */
+  changeKey(id, name, value) { if (!this.ledger().items[id]?.custom?.keyed) throw new Error('저장한 열쇠를 찾을 수 없어요.'); const v = String(value).trim(); if (!v || /[\r\n\0]/.test(v) || v.length > 8000) throw new Error('열쇠 값을 다시 적어 주세요.'); this.keys.change(id, name, v); this.log(`tools: key changed ${id}`); }
+  /** 장부에서 빠진 MCP 의 열쇠는 지운다 */
+  pruneKeys() { const l = this.ledger().items; for (const id of this.keys.ids()) if (!l[id]) this.keys.remove(id); }
   /** config.toml 을 원자적으로 바꾼다. expect 를 주면 옮기기 직전에 다시 읽어 그대로일 때만(그 사이 다른 프로그램이 고쳤으면 멈춤). */
   writeCodexToml(text, expect = null) {
     const file = path.join(this.codexDir, 'config.toml');

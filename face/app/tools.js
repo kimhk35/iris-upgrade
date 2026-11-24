@@ -60,7 +60,7 @@ window.ToolsView = (() => {
   function customHtml() {
     return `<div class="tl-cm-bar"><button type="button" class="tl-btn" data-cm-act="open">+ 내 MCP 추가</button><small>안내 페이지의 설정 글을 붙여 넣거나 직접 적어 추가합니다</small></div>
       <section class="st-grp tl-cm" id="tl-cm" hidden>
-        <h3 class="tl-h"><span class="tl-t">내 MCP 추가</span><small>키(비밀번호)가 필요 없는 MCP 만 받습니다 · 새로 여는 세션부터 쓸 수 있습니다</small></h3>
+        <h3 class="tl-h"><span class="tl-t">내 MCP 추가</span><small>열쇠(비밀번호)는 이 윈도 계정에서만 풀리게 잠가 보관합니다 · 새로 여는 세션부터 쓸 수 있습니다</small></h3>
         <div class="tl-cm-tabs" role="tablist"><button type="button" data-cm-mode="paste" aria-pressed="true">설정 글 붙여넣기</button><button type="button" data-cm-mode="form" aria-pressed="false">직접 적기</button></div>
         <div data-cm-pane="paste"><p class="tl-cm-help">MCP 안내 페이지에 있는 설정 글(<code>{"mcpServers": …}</code>)을 중괄호까지 통째로 붙여 넣으세요.</p>
           <textarea id="tl-cm-text" rows="8" spellcheck="false" placeholder="${esc(CM_EXAMPLE)}"></textarea></div>
@@ -70,6 +70,7 @@ window.ToolsView = (() => {
           <label class="tl-cm-f" data-cm-tr="http" hidden><span>주소</span><input id="tl-cm-url" placeholder="https://…" spellcheck="false" autocomplete="off"></label>
           <label class="tl-cm-f" data-cm-tr="stdio"><span>실행 명령</span><input id="tl-cm-cmd" placeholder="예: npx · uvx · node" spellcheck="false" autocomplete="off"></label>
           <label class="tl-cm-f" data-cm-tr="stdio"><span>인자</span><input id="tl-cm-args" placeholder="예: -y @modelcontextprotocol/server-filesystem C:\\자료" spellcheck="false" autocomplete="off"></label>
+          <label class="tl-cm-f" data-cm-tr="stdio"><span>열쇠 이름</span><input id="tl-cm-env" placeholder="없으면 비워 두세요 · 예: API_KEY" spellcheck="false" autocomplete="off"></label>
         </div>
         <div class="tl-cm-f tl-cm-ag"><span>쓰는 곳</span><label><input type="checkbox" id="tl-cm-claude" checked> Claude</label><label><input type="checkbox" id="tl-cm-codex" checked> Codex</label></div>
         <div id="tl-cm-out"></div>
@@ -78,9 +79,10 @@ window.ToolsView = (() => {
   }
   function cmPayload() {
     const agents = [['claude', '#tl-cm-claude'], ['codex', '#tl-cm-codex']].filter(([, s]) => $(s, host).checked).map(([a]) => a);
-    if (cmMode === 'paste') return { text: $('#tl-cm-text', host).value, agents };
+    const keys = {}; for (const i of host.querySelectorAll('[data-cm-key]')) if (i.value.trim()) (keys[i.dataset.cmId] ||= {})[i.dataset.cmKey] = i.value.trim();
+    if (cmMode === 'paste') return { text: $('#tl-cm-text', host).value, agents, keys };
     const transport = $('input[name="tl-cm-tr"]:checked', host).value;
-    return { form: { name: $('#tl-cm-name', host).value, transport, url: $('#tl-cm-url', host).value, command: $('#tl-cm-cmd', host).value, args: $('#tl-cm-args', host).value }, agents };
+    return { form: { name: $('#tl-cm-name', host).value, transport, url: $('#tl-cm-url', host).value, command: $('#tl-cm-cmd', host).value, args: $('#tl-cm-args', host).value, env: $('#tl-cm-env', host).value }, agents, keys };
   }
   function renderCustom() {
     if (!host) return;
@@ -92,7 +94,7 @@ window.ToolsView = (() => {
     const tr = $('input[name="tl-cm-tr"]:checked', host)?.value || 'stdio';
     for (const el of host.querySelectorAll('[data-cm-tr]')) el.hidden = el.dataset.cmTr !== tr;
     const out = $('#tl-cm-out', host), p = cmPreview;
-    const ag = (a) => (a === 'codex' ? 'Codex' : 'Claude');
+    const ag = (a) => (a === 'codex' ? 'Codex' : 'Claude'); const typed = {}; for (const i of host.querySelectorAll('[data-cm-key]')) (typed[i.dataset.cmId] ||= {})[i.dataset.cmKey] = i.value; // 다시 그려도 적은 열쇠를 지우지 않는다
     // 추가 중에는 새 MCP 가 아직 목록에 없으므로 진행 표시를 이 칸에 둔다
     if (cmBusy && acting) { out.innerHTML = `<p class="tl-cm-ok">${spinner(busy?.step || '추가하는 중…')}</p>`; $('[data-cm-act="install"]', host).disabled = true; $('[data-cm-act="preview"]', host).disabled = true; return; }
     out.innerHTML = !p ? '' : (p.errors || []).map(e => `<p class="tl-cm-err">${esc(e)}</p>`).join('')
@@ -100,18 +102,28 @@ window.ToolsView = (() => {
         + `<table class="tl-facts"><tr><th>방식</th><td>${it.transport === 'http' ? '인터넷 주소로 연결' : '이 컴퓨터에서 실행'}</td></tr>`
         + `<tr><th>${it.transport === 'http' ? '주소' : '실행'}</th><td><code>${esc(it.transport === 'http' ? it.url : it.runs || it.command)}</code></td></tr>`
         + `<tr><th>쓰는 곳</th><td>${(cmPayload().agents).map(ag).join(' · ') || '없음'}</td></tr></table>`
+        + (it.keyNames?.length ? `<div class="tl-cm-keys">${it.keyNames.map(k => `<label class="tl-cm-f"><span>${esc(k)}</span><input type="password" data-cm-key="${esc(k)}" data-cm-id="${esc(it.id)}" autocomplete="off" spellcheck="false" placeholder="${it.needs.includes(k) ? '열쇠 값을 적으세요' : '설정 글에 적힌 값을 씁니다'}" value="${esc(typed[it.id]?.[k] || '')}"></label>`).join('')}<small>저장한 열쇠는 화면과 기록에 다시 보이지 않습니다. 이 도구가 실행되는 동안에는 도구 프로그램이 열쇠를 압니다 — 믿을 수 있는 도구에만 쓰세요.</small></div>` : '')
         + it.errors.map(e => `<p class="tl-cm-err">${esc(e)}</p>`).join('') + '</div>').join('')
+      + (p.items?.some(x => x.needs?.length) && !p.items.some(x => x.errors.length) ? '<p class="tl-cm-ok">열쇠 값을 적고 「미리 보기」를 다시 누르면 추가할 수 있습니다.</p>' : '')
       + (p.ok ? '<p class="tl-cm-ok">이대로 추가할 수 있습니다. 「추가」를 누르세요.</p>' : '');
     $('[data-cm-act="install"]', host).disabled = !p?.ok || cmBusy || !!busy || !!acting;
     $('[data-cm-act="preview"]', host).disabled = cmBusy;
   }
   const normalize = (s) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '');
-  async function cmPost(op) {
+  async function cmPost(op, payload = cmPayload()) {
     cmBusy = true; renderCustom();
     let r;
-    try { r = await (await fetch(`/api/tools/custom/${op}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cmPayload()) })).json(); }
+    try { r = await (await fetch(`/api/tools/custom/${op}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })).json(); }
     catch (err) { r = { ok: false, error: err.message, errors: [err.message], items: [] }; }
     cmBusy = false; return r;
+  }
+  async function changeKey(id) {
+    const names = customById(id)?.keyNames || []; if (!names.length) return;
+    const p = Dialog.choose({ title: `${id} 열쇠 바꾸기`, html: `<p>새 값을 적은 열쇠만 바뀝니다. 지금 값은 보여 주지 않아요.</p>${names.map(n => `<label class="tl-cm-f"><span>${esc(n)}</span><input type="password" class="tl-in" data-nk="${esc(n)}" autocomplete="off"></label>`).join('')}`, okLabel: '바꾸기', cancelLabel: '취소' });
+    const r = await p; const ins = [...document.querySelectorAll('#dlg-msg [data-nk]')]; const list = ins.map(i => [i.dataset.nk, i.value.trim()]).filter(([, v]) => v); for (const i of ins) i.value = ''; document.querySelector('#dlg-msg').textContent = '';
+    if (r !== 'ok' || !list.length) return;
+    for (const [name, value] of list) { const q = await fetch('/api/tools/custom/key', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, name, value }) }); if (!q.ok) return Dialog.alert((await q.json()).error || '바꾸지 못했어요.'); }
+    Dialog.alert('열쇠를 바꿨어요. 새로 여는 세션부터 쓰입니다.');
   }
   async function cmAct(a) {
     if (a === 'open') { cmOpen = true; renderCustom(); (cmMode === 'paste' ? $('#tl-cm-text', host) : $('#tl-cm-name', host)).focus(); return; }
@@ -121,10 +133,10 @@ window.ToolsView = (() => {
       const names = cmPreview.items.map(x => x.id).join(', ');
       const yes = await Dialog.confirm('', { title: '내 MCP 추가', html: `<p><b>${esc(names)}</b> 을(를) ${cmPayload().agents.map(x => (x === 'codex' ? 'Codex' : 'Claude')).join(' · ')}에 추가합니다.</p><p>새로 여는 세션부터 쓸 수 있습니다. 나중에 「빼기」로 지울 수 있습니다.</p>`, okLabel: '추가' });
       if (!yes) return;
-      acting = cmPreview.items[0].id; render();
-      const r = await cmPost('install');
+      const payload = cmPayload(); acting = cmPreview.items[0].id; render(); // 진행 표시가 열쇠 칸을 지우기 전에 값을 잡아 둔다
+      const r = await cmPost('install', payload);
       acting = null;
-      if (r.ok) { cmOpen = false; cmPreview = null; $('#tl-cm-text', host).value = ''; for (const s of ['#tl-cm-name', '#tl-cm-url', '#tl-cm-cmd', '#tl-cm-args']) $(s, host).value = ''; }
+      if (r.ok) { cmOpen = false; cmPreview = null; $('#tl-cm-text', host).value = ''; for (const i of host.querySelectorAll('[data-cm-key]')) i.value = ''; for (const s of ['#tl-cm-name', '#tl-cm-url', '#tl-cm-cmd', '#tl-cm-args', '#tl-cm-env']) $(s, host).value = ''; }
       await load(true);
       if (!r.ok) Dialog.alert(`추가하지 못했습니다: ${r.error || '알 수 없는 오류'}`);
     }
@@ -169,7 +181,7 @@ window.ToolsView = (() => {
         const cu = customById(r.customId);
         if (busy?.id === r.customId || acting === r.customId) right = spinner(busy?.step || '진행 중…');
         else if (cu?.removeRequested) right = badge('제거 대기', 'manual') + btn('cancel', r.customId, '제거 취소');
-        else right = badge('내가 추가', 'iris') + btn('remove', r.customId, '빼기', { danger: true });
+        else right = badge('내가 추가', 'iris') + (cu?.keyNames?.length ? `<button type="button" class="tl-btn" data-mk="${esc(r.customId)}">열쇠 ${cu.keyNames.length}개</button>` : '') + btn('remove', r.customId, '빼기', { danger: true });
         // 실행 파일은 감싸기 전 원래 명령(npx 등)으로 보인다 — 설정에는 cmd /c 로 들어가 있다
         return rowHtml({ id: r.customId, icon: iconOf(null, k), name: r.name, sub: esc(line({ ...r, program: cu?.program || r.program, kind: cu?.transport || r.kind }, k)) + ' · IRIS 에서 추가' + (cu?.removeRequested ? ' · 열린 세션이 모두 끝나면 지웁니다' : ''), agents: r.agents, off: r.off, right, err: cu?.error });
       }
@@ -259,8 +271,9 @@ window.ToolsView = (() => {
         <div id="tl-body"></div>`;
       // 내 MCP 칸: 글을 바꾸면 미리 보기를 무효로(본 것과 다른 것을 추가하지 않게), 키 입력은 바깥 단축키(Esc 등)로 새지 않게
       const cm = $('#tl-cm-wrap', host);
-      cm.addEventListener('input', () => { if (cmPreview) { cmPreview = null; renderCustom(); } });
-      cm.addEventListener('change', () => { cmPreview = null; renderCustom(); });
+      cm.addEventListener('input', (e) => { if (cmPreview && e.target.dataset.cmKey === undefined) { // 열쇠 값을 적는 것은 미리 보기를 지우지 않는다
+        cmPreview = null; renderCustom(); } });
+      cm.addEventListener('change', (e) => { if (e.target.dataset.cmKey !== undefined) return; cmPreview = null; renderCustom(); });
       cm.addEventListener('keydown', (e) => { if (e.target.matches('input, textarea')) e.stopPropagation(); });
       // 아이콘 파일이 없거나 깨지면 종류 기본 선 아이콘으로 바꾼다(빈 네모·깨진 그림 안 보이게). error 는 거품이 없어 잡기 단계에서 받는다.
       host.addEventListener('error', (e) => {
@@ -270,7 +283,7 @@ window.ToolsView = (() => {
       const input = $('#tl-q', host);
       input.addEventListener('input', () => { q = input.value; render(); });
       input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') { input.value = ''; q = ''; render(); } });
-      host.addEventListener('click', (e) => {
+      host.addEventListener('click', (e) => { const mk = e.target.closest('[data-mk]'); if (mk) return void changeKey(mk.dataset.mk);
         const t = e.target.closest('[data-kind]'); if (t && t.closest('#tl-kinds')) { kind = t.dataset.kind; try { localStorage.setItem(KEY_TAB, kind); } catch {} return render(); }
         const a = e.target.closest('[data-agent]'); if (a) { agent = a.dataset.agent; return render(); }
         const m = e.target.closest('[data-cm-mode]'); if (m) { cmMode = m.dataset.cmMode; cmPreview = null; return renderCustom(); }

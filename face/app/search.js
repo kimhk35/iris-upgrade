@@ -4,7 +4,7 @@
 window.Search = (() => {
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const AG = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini' };
+  const AG = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini', local: '로컬' };
   let box = null, agent = '', timer = 0, seq = 0, stale = false, opts = {}, prev = null, data = [];
   const isOpen = () => !!box && !box.hidden;
   const when = (t) => { const d = new Date(t || 0); if (!t || isNaN(d)) return ''; const now = new Date(); return d.toDateString() === now.toDateString() ? d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : `${d.getFullYear() === now.getFullYear() ? '' : `${d.getFullYear()}년 `}${d.getMonth() + 1}월 ${d.getDate()}일`; };

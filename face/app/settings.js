@@ -163,6 +163,7 @@ window.Settings = (() => {
   }
   function showPane(p) {
     if (!PANES.includes(p)) return;
+    document.dispatchEvent(new CustomEvent('iris:pane', { detail: p }));
     pane = p; try { localStorage.setItem('iris.settings.pane', p); } catch {}
     for (const el of document.querySelectorAll('#settings .st-pane')) el.hidden = el.dataset.pane !== p;
     for (const el of document.querySelectorAll('#st-nav .st-nav-i')) el.classList.toggle('cur', el.dataset.pane === p);
@@ -511,6 +512,9 @@ window.Settings = (() => {
     $('#st-density').addEventListener('change', save);
     $('#st-math').addEventListener('input', onMathInput);
     $('#st-math').addEventListener('change', (e) => { if (e.target.id === 'st-math-f') { cfg.math = { ...cfg.math, formula: e.target.checked }; applyStage(); } save(); });
+    const acl = $('#st-acl'); const aclNow = async () => { try { const j = await (await fetch('/api/records-acl')).json(); acl.checked = j.locked === true; acl.disabled = j.locked === null; } catch { acl.disabled = true; } };
+    acl.addEventListener('change', async () => { const on = acl.checked; if (on && !(await Dialog.confirm('대화 기록 폴더를 지금 윈도 계정만 볼 수 있게 할까요?\n\n다른 윈도 계정에서는 이 IRIS를 쓸 수 없게 돼요. 여기서 언제든 끌 수 있어요.', { okLabel: '켜기' }))) { acl.checked = false; return; } acl.disabled = true; try { const r = await fetch('/api/records-acl', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) }); const j = await r.json(); if (!r.ok) throw new Error(j.error); } catch (e) { Dialog.alert(e.message); } acl.disabled = false; aclNow(); });
+    document.addEventListener('iris:pane', (e) => { if (e.detail === 'account') aclNow(); if (e.detail === 'session') window.Schedule?.refresh(); }); aclNow();
     $('#st-docver').addEventListener('change', (e) => pick({ docVersions: e.target.checked }));
     $('#st-docver-clear').addEventListener('click', async () => { if (!(await Dialog.confirm('보관한 앞 판을 모두 지울까요? 원본 문서는 그대로예요.', { okLabel: '지우기', danger: true }))) return; try { const j = await (await fetch('/api/doc/versions-clear', { method: 'POST' })).json(); Dialog.alert(`문서 ${j.cleared || 0}개의 앞 판을 지웠어요.`); } catch { Dialog.alert('지우지 못했어요.'); } });
     for (const b of document.querySelectorAll('[data-font]')) b.addEventListener('click', () => fontStep(Number(b.dataset.font)));

@@ -109,7 +109,7 @@ async function main() {
       ok('claude' in a && 'codex' in a, '① /api/agents 에 두 에이전트 모두 있음(버튼 항상 표시)');
       const st = await getJson('/api/agents/status');
       ok(st.accounts && st.accounts.claude === 0 && st.accounts.codex === 0, '① status.accounts = {claude:0, codex:0} → 화면이 "계정 없음" 안내');
-      ok(Array.isArray(st.missing) && st.missing.length === 0, '① status.missing = [] (두 프로그램 다 있음)');
+      ok(Array.isArray(st.missing) && !st.missing.some((x) => x === 'claude' || x === 'codex'), '① status.missing 에 두 프로그램 없음(둘 다 있음 · 로컬 AI 는 Ollama 가 있는 PC 만)');
       ok(Array.isArray(st.sleeping) && st.sleeping.length === 0, '① status.sleeping = [] (잠든 에이전트 없음)');
     }
 

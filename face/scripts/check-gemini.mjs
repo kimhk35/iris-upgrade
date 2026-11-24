@@ -110,9 +110,9 @@ ok(geminiArgs({ CommandLine: '"a b"' }).command === 'a b' && writtenFiles('repla
   const html = src('app/index.html'), main = src('app/main.js'), sess = src('daemon/sessions.mjs'), srv = src('daemon/server.mjs');
   ok(/data-agent="gemini"/.test(html), '6 Gemini 단추');
   ok(/se\.hidden = !efforts\.length/.test(main) && /mode: sel\.agent === 'gemini' \? \(st\.geminiMode \?\? 'bypass'\)/.test(main), '6 깊이 칸 숨김 · 기본 = 전부 허용');
-  ok(/agent === 'gemini' \? null/.test(main), '6 공유 계정 몫 계산에서 Gemini 제외(중계기 밖)');
+  ok(/agent === 'gemini' \|\| agent === 'local' \? null/.test(main), '6 공유 계정 몫 계산에서 Gemini 제외(중계기 밖)');
   ok(/if \(agent === 'gemini'\) return this\.watchGeminiRecord/.test(sess) && (/\[\\u2801-\\u28FF\]/.test(sess) || sess.includes('[⠁-⣿]')), '6 기록 짝짓기 · 점자 스피너(Generating...)= 작업 중');
-  ok(/searchParams\.get\('agent'\) === 'gemini'\) return json\(res, 200, \{ ready: true/.test(srv), '6 중계기 준비 확인은 Gemini 면 바로 통과');
+  ok(/\['gemini', 'local'\]\.includes\(url\.searchParams\.get\('agent'\)\)\) return json\(res, 200, \{ ready: true/.test(srv), '6 중계기 준비 확인은 Gemini 면 바로 통과');
 }
 
 // 7) (--live) 진짜 agy 로 시험 데몬에서 대화 하나
