@@ -1109,6 +1109,11 @@ button.tl-pill[aria-pressed="true"] { border-color: var(--iris); background: var
 .mg-parts { gap: 12px; flex-wrap: wrap; font-size: 12.5px; } .mg-parts label { display: inline-flex; gap: 5px; align-items: center; } .mg-line { flex-wrap: wrap; justify-content: flex-end; } .mg-line .tl-in { width: 128px; margin: 0; } .mg-line input[type=file] { max-width: 210px; font-size: 12px; color: var(--ink-2); }
 .mg-ol { margin: 8px 0; padding-left: 20px; line-height: 1.75; white-space: normal; } .mg-note { font-size: 12.5px; color: var(--ink-3); white-space: normal; } .dlg-msg p { white-space: normal; margin: 4px 0; }
 .tl-cm-keys { margin-top: 8px; } .tl-cm-keys small { display: block; font-size: 11.5px; color: var(--ink-3); line-height: 1.55; margin-top: 4px; }
+/* 머리줄이 좁을 때(P18 2026-11-24 신고): 세 AI 배터리 + 공유 칩이 넘쳐 Gemini 칸과 ⚙ 가 잘렸다 — 막대부터 줄이고 숫자는 남긴다. ⚙ 는 언제나 보인다. */
+.top-right { min-width: 0; } .top-right .icon-btn, .top-right .mod-btns { flex: none; } .limits { min-width: 0; }
+@media (max-width: 1360px) { .limits { gap: 13px; padding: 4px 6px; } .batt { gap: 5px; } .batt-body.sm { width: 22px; } .batt-pct { min-width: 0; } }
+@media (max-width: 1220px) { .batt-body { display: none; } .batt-pct { text-align: left; } .batt-win { gap: 4px; } }
+@media (max-width: 1060px) { .top-right { gap: 8px; } .limits { gap: 10px; } .mem-pct { display: none; } .local-usage { padding: 0 8px; } .local-usage > :not(svg):not(b):not(strong) { display: none; } .batt { gap: 4px; font-size: 11px; } .batt-tag { font-size: 9.5px; } }
 /* 메뉴 정리(P18 2026-11-24) */
 :root { scrollbar-color: var(--line-2) transparent; }
 .st-nav-cap { padding: 10px 14px 3px; font-size: 10.5px; letter-spacing: .08em; color: var(--ink-3); } .st-nav-cap:first-child { padding-top: 2px; }

@@ -93,6 +93,15 @@ window.Settings = (() => {
     const cell = (w) => `<span class="batt-win ${lv(w.p)}">${one ? '' : `<small class="batt-tag">${w.tag}</small>`}<span class="batt-body${one ? '' : ' sm'}"><span class="batt-fill" style="width:${w.p ?? 0}%"></span></span><span class="batt-pct">${w.p == null ? '—' : w.p + '%'}</span></span>`;
     return `<span class="batt ${worst}" title="${esc(title)}"><span class="batt-label">${label}</span>${ws.map(cell).join('')}</span>`;
   }
+  let gemSoon = null;
+  /** 머리줄 Gemini 칸: 프로그램(agy)이 없으면 숨기고, 있으면 읽기 전·실패여도 빈 칸(—)과 까닭을 보인다(2026-11-24 신고 「제미나이 표시 안됨」 — 값이 없으면 통째로 숨겨 「읽는 중」과 구별되지 않았다). */
+  function geminiCell(gem) {
+    const gg = gem?.groups?.find((x) => x.key === 'gemini'); if (!gg && !gem?.installed) return '';
+    const u = (w) => w && Number.isFinite(w.left) ? 1 - w.left : null, pc = (v) => v == null ? '?' : left(v) + '%', tail = '  (누르면 My Agent 대시보드)';
+    if (!gg) return battery('Gemini', null, [{ tag: '주간', v: null }], ({ 'not-yet': 'Gemini 사용량을 읽는 중이에요', 'login-needed': 'Gemini 로그인이 필요해요 — 대시보드의 「＋ Gemini 계정」', 'agy-missing': 'Gemini 프로그램이 없어요' }[gem.error] || `Gemini 사용량을 읽지 못했어요(${gem.error || '까닭 모름'}) — 10분마다 다시 읽어요`) + tail);
+    const h5 = u(gg.h5), d7 = u(gg.d7);
+    return battery('Gemini', gem.account, [h5 != null ? { tag: '5시간', v: h5 } : null, { tag: '주간', v: d7 }].filter(Boolean), `Gemini 계정 ${gem.account || '?'} — 남은 잔량: 주간 ${pc(d7)}${h5 != null ? ` · 5시간 ${pc(h5)}` : ''}${gem.ok ? '' : ' · 마지막 읽기 실패(지난 값)'}${tail}`);
+  }
   async function loadLimits() {
     // TeamClaude 도구가 없는 PC(데몬 features.dashboard === false)면 배터리 자리를 통째로 숨긴다 — main.js 가 같은 신호로 Ctrl+D 서랍도 끈다.
     if (health?.features?.dashboard === false) { $('#limits').hidden = true; $('#limits').innerHTML = ''; return; }
@@ -100,10 +109,10 @@ window.Settings = (() => {
       const r = await fetch('/api/limits'); const l = await r.json(); const a = l?.anthropic, c = l?.codex; const L = (v) => v == null ? '?' : left(v) + '%';
       // Gemini(P18 2026-11-19): 중계기 밖 — 데몬이 10분마다 agy /usage 를 읽어 둔 값. 읽은 적이 없거나 agy 가 없으면 배터리를 그리지 않는다.
       let gem = null; try { gem = await (await fetch('/api/gemini/usage')).json(); } catch {}
-      const gg = gem?.groups?.find((x) => x.key === 'gemini'), gu = (w) => w && Number.isFinite(w.left) ? 1 - w.left : null;
       const W = (h5, d7) => [h5 != null ? { tag: '5시간', v: h5 } : null, { tag: '주간', v: d7 ?? null }].filter(Boolean);
       const cH5 = /^pro/i.test(c?.plan || '') ? null : c?.h5; // Codex Pro(pro·prolite)는 5시간 제한 없음
-      const gBatt = gg ? battery('Gemini', gem.account, W(gu(gg.h5), gu(gg.d7)), `Gemini 계정 ${gem.account || '?'} — 남은 잔량: 주간 ${L(gu(gg.d7))}${gg.h5 ? ` · 5시간 ${L(gu(gg.h5))}` : ""}${gem.ok ? '' : ' · 마지막 읽기 실패(지난 값)'}  (누르면 My Agent 대시보드)`) : '';
+      const gBatt = geminiCell(gem);
+      if (gem?.installed && !gem.groups && gem.error === 'not-yet') { clearTimeout(gemSoon); gemSoon = setTimeout(loadLimits, 4000); } // 첫 읽기가 끝나면 1분을 기다리지 않고 바로
       $('#limits').innerHTML = l
         ? battery('Claude', a?.account, W(a?.h5, a?.d7), `왕관 계정 ${a?.account || '?'} — 남은 잔량: 주간 ${L(a?.d7)}${a?.d7Fable != null ? ` · Fable 주간 ${L(a.d7Fable)}` : ""}${a?.h5 != null ? ` · 5시간 ${L(a.h5)}` : ""}  (누르면 My Agent 대시보드)`) + battery('Codex', c?.account, W(cH5, c?.d7), `왕관 계정 ${c?.account || '?'} — 남은 잔량: 주간 ${L(c?.d7)}${/^pro/i.test(c?.plan || "") || c?.h5 == null ? "" : ` · 5시간 ${L(c.h5)}`}  (누르면 My Agent 대시보드)`) + gBatt
         : '<span class="batt-off">대시보드</span>';

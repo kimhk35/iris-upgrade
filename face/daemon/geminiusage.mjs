@@ -44,7 +44,7 @@ export function parseUsage(text, now = Date.now()) {
   }
   const out = groups.filter((g) => g.h5 || g.d7).map(({ at, ...g }) => g);
   if (!out.length) return null;
-  const acc = /Account:\s*([^\s]+@[^\s]+)/.exec(t);
+  const acc = /Account:\s*([A-Za-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z]{2,})+)/.exec(t); // 뒤에 다음 머리글(대문자)이 붙어 올 수 있다
   const plan = /\((Google AI [A-Za-z ]+?)\)/.exec(t);
   return { account: acc ? acc[1] : null, plan: plan ? plan[1] : null, groups: out };
 }
@@ -52,8 +52,8 @@ export function parseUsage(text, now = Date.now()) {
 const writeAtomic = (file, text) => { const tmp = `${file}.${process.pid}.tmp`; fs.writeFileSync(tmp, text); fs.renameSync(tmp, file); };
 
 export class GeminiUsage {
-  /** opts: stateDir · agyExe() → 경로|null · agyHome · env() → 자식 환경 · log · intervalMs(기본 10분) · firstDelayMs(기본 60초) · spawn(시험용 가짜 pty) */
-  constructor({ stateDir, agyExe, agyHome, env = () => process.env, log = () => {}, intervalMs = 600000, firstDelayMs = 60000, spawn = null }) {
+  /** opts: stateDir · agyExe() → 경로|null · agyHome · env() → 자식 환경 · log · intervalMs(기본 10분) · firstDelayMs(기본 8초) · spawn(시험용 가짜 pty) */
+  constructor({ stateDir, agyExe, agyHome, env = () => process.env, log = () => {}, intervalMs = 600000, firstDelayMs = 8000, spawn = null }) {
     Object.assign(this, { stateDir, agyExe, agyHome, env, log, intervalMs, firstDelayMs });
     this.file = path.join(stateDir, 'gemini-usage.json');
     this.dir = path.join(stateDir, 'agy-usage'); // 읽을 때 agy 를 여는 빈 폴더(미리 믿는 폴더로 적어 둔다)
@@ -67,7 +67,7 @@ export class GeminiUsage {
     this.timer = setInterval(() => this.refresh().catch(() => {}), this.intervalMs); this.timer.unref?.();
   }
   stop() { clearTimeout(this.first); clearInterval(this.timer); this.timer = null; }
-  get() { return this.value || { ok: false, error: 'not-yet' }; }
+  get() { let installed = false; try { installed = !!this.agyExe(); } catch {} return { ...(this.value || { ok: false, error: 'not-yet' }), installed }; }
   save(v) { this.value = v; try { fs.mkdirSync(this.stateDir, { recursive: true }); writeAtomic(this.file, JSON.stringify(v, null, 2)); } catch (e) { this.log(`gemini usage: 저장 실패 ${e.message}`); } }
   /** 한 번 읽기(동시에 두 번 돌지 않음). 결과를 저장하고 돌려준다. */
   refresh() {

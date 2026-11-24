@@ -26,6 +26,10 @@ ok(o && o.d7.left === 1 && o.h5.left === 1 && o.d7.resetAt === null, '1 Claude·
 ok(x && x.label === 'GEMINI 4 ARGON' && Math.abs(x.d7.left - 0.998) < 1e-6 && !x.h5, `1 Argon 묶음 = 7일만 99.80% (${x?.label})`);
 ok(u?.groups.length === 3, '1 묶음 3개');
 
+// 화면에서 빈 줄이 커서 이동으로만 그려지면 계정 뒤에 다음 머리글이 붙는다(2026-11-24 실측: …comGEMINI)
+const stuck = parseUsage(sample.replace(/(someone@example\.com)\s+GEMINI MODELS/, '$1GEMINI MODELS'), now);
+ok(stuck?.account === 'someone@example.com' && stuck.groups.length === 3, `1 계정 뒤에 머리글이 붙어도 계정만 (${stuck?.account})`);
+
 // 2) 작은 부품
 ok(parseDuration('145h 49m') === (145 * 60 + 49) * 60000 && parseDuration('2d 3h') === (51) * 3600000 && parseDuration('—') === null, '2 남은 시간 글 → 밀리초');
 ok(cleanScreen('\x1b[1;32mA\x1b[0m\r\nB') === 'A\nB', '2 색 코드 지우기');
@@ -58,7 +62,23 @@ function fakePty(script) {
   ok(v2.ok === false && v2.error === 'trust-prompt' && v2.groups?.length === 3, '3 실패하면 error 를 적고 지난 값은 그대로');
   const gu3 = new GeminiUsage({ stateDir: path.join(tmp, 'st3'), agyExe: () => null, agyHome: home, intervalMs: 0 });
   ok((await gu3.refresh()).error === 'agy-missing', '3 agy 없음 = agy-missing');
+  ok(gu3.get().installed === false && new GeminiUsage({ stateDir: path.join(tmp, 'st4'), agyExe: () => 'agy.exe', agyHome: home, intervalMs: 0 }).get().installed === true, '3 프로그램이 있는지 함께 알림(읽기 전에도 머리줄에 칸을 보이려고)');
+  ok(gu3.firstDelayMs <= 15000, '3 켠 뒤 첫 읽기는 15초 안에 시작');
   const a = gu.refresh(), b = gu.refresh(); ok(a === b, '3 동시에 두 번 돌지 않음'); await a;
+}
+
+// 3-2) 머리줄 칸(화면 코드에서 함수만 꺼내 확인): 읽기 전·실패여도 프로그램이 있으면 보이고, 없으면 숨긴다
+{
+  const src = fs.readFileSync(path.join(HERE, '..', 'app', 'settings.js'), 'utf8'); const m = /  function geminiCell\(gem\) \{[\s\S]*?\n  \}/.exec(src);
+  ok(!!m, '3-2 geminiCell 이 있음');
+  if (m) {
+    const cell = new Function('battery', 'left', `${m[0]}; return geminiCell;`)((l, acc, wins, title) => ({ l, wins, title }), (v) => Math.round((1 - v) * 100));
+    ok(cell({ ok: false, error: 'not-yet', installed: false }) === '' && cell(null) === '', '3-2 프로그램 없음 = 숨김');
+    const wait = cell({ ok: false, error: 'not-yet', installed: true }); ok(wait.l === 'Gemini' && wait.wins.every((w) => w.v === null) && /읽는 중/.test(wait.title), '3-2 읽기 전 = 빈 칸 + 읽는 중');
+    ok(/로그인/.test(cell({ ok: false, error: 'login-needed', installed: true }).title), '3-2 로그인 필요를 말풍선으로');
+    const good = cell({ ok: true, installed: true, account: 'a@b.c', groups: [{ key: 'gemini', h5: { left: .4 }, d7: { left: .9 } }] }); ok(good.wins.length === 2 && Math.abs(good.wins[0].v - .6) < 1e-9 && Math.abs(good.wins[1].v - .1) < 1e-9, '3-2 값이 있으면 5시간·주간');
+    ok(/지난 값/.test(cell({ ok: false, error: 'x', installed: true, groups: [{ key: 'gemini', h5: null, d7: { left: 1 } }] }).title), '3-2 실패 + 지난 값 = 지난 값이라고 알림');
+  }
 }
 
 // 4) (--live) 진짜 agy
