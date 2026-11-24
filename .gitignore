@@ -28,3 +28,4 @@ __pycache__/
 secrets/
 *.key
 *.pem
+installer/_sources-backup/

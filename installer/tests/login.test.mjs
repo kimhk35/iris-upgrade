@@ -677,3 +677,20 @@ test('codex identity (2.0.30): the import entry is named by the id_token email a
   assert.deepEqual(refreshCodexDisplayName({ root, teamclaudeConfigPath: configPath }), { ok: true, changed: false, email: 'someone@localhost' });
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test('quotaProbeSeconds (2.1.3): 새 설정은 사용량 자동 확인 300초 · 옛 설정은 빈 칸만 채움 · 사용자가 끈 0 은 존중 (2026-11-24 신고: 코덱스 사용량 미수신)', async () => {
+  const { ensureRelayConfigDefaults, defaultRelayConfig } = await import('../installer/lib/login.mjs');
+  assert.equal(defaultRelayConfig().quotaProbeSeconds, 300);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-relayprobe-'));
+  const cfg = path.join(dir, 'teamclaude.json');
+  const acct = [{ name: 'codex-1', provider: 'codex', refreshToken: 'KEEP' }];
+  const { quotaProbeSeconds, ...old } = defaultRelayConfig();
+  fs.writeFileSync(cfg, JSON.stringify({ ...old, accounts: acct }), 'utf8');
+  assert.deepEqual(ensureRelayConfigDefaults(cfg), { patched: ['quotaProbeSeconds'] });
+  const after = JSON.parse(fs.readFileSync(cfg, 'utf8'));
+  assert.equal(after.quotaProbeSeconds, 300);
+  assert.deepEqual(after.accounts, acct);
+  fs.writeFileSync(cfg, JSON.stringify({ ...old, quotaProbeSeconds: 0 }), 'utf8');
+  assert.deepEqual(ensureRelayConfigDefaults(cfg), { patched: [] });
+  fs.rmSync(dir, { recursive: true, force: true });
+});

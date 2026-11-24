@@ -8,16 +8,22 @@ IRIS-Face 데몬이 부르는 독립 실행 스크립트. 대화 안에 문서�
 
 사용:  python doc2pdf.py <원본경로> <PDF저장경로>
 성공:  종료코드 0 + stdout 마지막 줄 "OK <PDF경로>"
-실패:  종료코드 1 + stderr 에 사유
+실패:  종료코드 1 + stderr 에 사유([NOAPP] = 그 프로그램 없음, [LOCKED] = 파일이 잠김)
+       종료코드 3 = 이 파이썬에 필요한 모듈이 없음(데몬이 다음 파이썬으로 다시 부른다)
 
 인터프리터:
-  - .hwp/.hwpx → pyhwpx 가 깔린 한/글 MCP venv 파이썬으로 실행해야 한다(데몬이 골라 준다).
-  - .doc(x)/.xls(x)/.ppt(x) → win32com 이 있는 아무 파이썬(시스템 파이썬 가능).
+  - .hwp/.hwpx → pyhwpx 가 깔린 파이썬, 그 밖 → win32com 이 있는 파이썬(데몬이 골라 준다).
+
+원본 보호(P18 2026-11-24): 원본을 임시 폴더에 베껴 그 사본을 연다 — 사용자가 같은 문서를 열어 두었을 때
+그 창을 닫아 버리거나, 내려받은 문서의 「제한된 보기」에 막히지 않는다. 파워포인트는 하나만 뜨는 프로그램이라
+사용자가 이미 쓰고 있으면 끄지 않는다.
 """
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+import tempfile
 
 # 윈도 cp949 콘솔에서 한글 print 가 죽지 않도록 (R-010)
 try:
@@ -33,6 +39,25 @@ def _err(msg: str) -> None:
 
 def _ensure_parent(path: str) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+
+
+class NoApp(RuntimeError):
+    """그 문서를 여는 프로그램이 이 PC에 없다."""
+
+
+# 클래스가 등록되지 않음 · 잘못된 클래스 문자열 · 라이브러리가 등록되지 않음
+_NOT_INSTALLED = (-2147221164, -2147221005, -2147319779)
+
+
+def _dispatch(progid: str):
+    import win32com.client as win32
+
+    try:
+        return win32.DispatchEx(progid)
+    except Exception as e:
+        if getattr(e, "hresult", None) in _NOT_INSTALLED:
+            raise NoApp(progid)
+        raise
 
 
 # ---------------------------------------------------------------- 한/글 --------
@@ -64,7 +89,12 @@ def _ensure_hwp_security() -> None:
 
 def hwp_to_pdf(src: str, out: str) -> None:
     _ensure_hwp_security()
-    from pyhwpx import Hwp
+    try:
+        from pyhwpx import Hwp
+    except ModuleNotFoundError:
+        raise
+    except Exception as e:  # 한/글이 없으면 import 자체가 COM 형식 라이브러리를 찾다 실패한다
+        raise NoApp(repr(e))
 
     hwp = Hwp(new=True, visible=False)
     try:
@@ -92,8 +122,9 @@ def _office_to_pdf(src: str, out: str, ext: str) -> None:
     pythoncom.CoInitialize()
     try:
         if ext in (".doc", ".docx", ".rtf", ".odt"):
-            app = win32.DispatchEx("Word.Application")
+            app = _dispatch("Word.Application")
             app.Visible = False
+            app.DisplayAlerts = 0  # 안내 창이 떠서 무인 변환이 멈추지 않게
             app.AutomationSecurity = 3  # msoAutomationSecurityForceDisable — 미리보기용으로 여는 문서의 매크로는 절대 실행하지 않는다(P18)
             try:
                 doc = app.Documents.Open(src, ReadOnly=True)
@@ -102,7 +133,7 @@ def _office_to_pdf(src: str, out: str, ext: str) -> None:
             finally:
                 app.Quit()
         elif ext in (".xls", ".xlsx", ".xlsm", ".ods"):
-            app = win32.DispatchEx("Excel.Application")
+            app = _dispatch("Excel.Application")
             app.Visible = False
             app.DisplayAlerts = False
             app.AutomationSecurity = 3  # 매크로 실행 금지(P18)
@@ -113,17 +144,30 @@ def _office_to_pdf(src: str, out: str, ext: str) -> None:
             finally:
                 app.Quit()
         elif ext in (".ppt", ".pptx", ".odp"):
-            app = win32.DispatchEx("PowerPoint.Application")
+            # 파워포인트는 하나만 뜬다 — DispatchEx 도 사용자가 쓰던 창에 붙는다. 그래서 아래에서 함부로 끄지 않는다.
+            app = _dispatch("PowerPoint.Application")
+            prev = None  # 사용자가 쓰던 창에 붙었을 수 있으니 매크로 설정은 끝나고 되돌린다
             try:
+                prev = app.AutomationSecurity
                 app.AutomationSecurity = 3  # 매크로 실행 금지(P18)
             except Exception:
                 pass  # 아주 옛 판 파워포인트는 이 속성이 없을 수 있다 — 변환은 계속
             try:
-                pres = app.Presentations.Open(src, ReadOnly=True, WithWindow=False)
-                pres.SaveAs(out, 32)  # 32 = ppSaveAsPDF
-                pres.Close()
+                # msoTrue(-1)/msoFalse(0) — 차례: 파일, 읽기 전용, 제목 없음, 창
+                pres = app.Presentations.Open(src, -1, 0, 0)
+                try:
+                    pres.SaveAs(out, 32)  # 32 = ppSaveAsPDF
+                finally:
+                    pres.Close()
             finally:
-                app.Quit()
+                # 화면에 보이거나(사용자가 쓰는 창) 열린 문서가 있으면 끄지 않는다
+                try:
+                    if prev is not None:
+                        app.AutomationSecurity = prev
+                    if app.Presentations.Count == 0 and not app.Visible:
+                        app.Quit()
+                except Exception:
+                    pass
         else:
             raise RuntimeError(f"지원하지 않는 오피스 형식: {ext}")
     finally:
@@ -146,14 +190,29 @@ def main() -> int:
         return 1
     _ensure_parent(out)
     ext = os.path.splitext(src)[1].lower()
+    work = tempfile.mkdtemp(prefix="iris-doc-")
     try:
+        copy = os.path.join(work, "doc" + ext)  # 짧은 영문 이름 — 긴 경로·특수문자에도 안전
+        try:
+            shutil.copyfile(src, copy)
+        except PermissionError as e:
+            _err(f"[LOCKED] {e!r}")
+            return 1
         if ext in (".hwp", ".hwpx"):
-            hwp_to_pdf(src, out)
+            hwp_to_pdf(copy, out)
         else:
-            _office_to_pdf(src, out, ext)
+            _office_to_pdf(copy, out, ext)
+    except ModuleNotFoundError as e:
+        _err(f"[NOMODULE] {e!r}")
+        return 3
+    except NoApp as e:
+        _err(f"[NOAPP] {e!r}")
+        return 1
     except Exception as e:
         _err(f"변환 실패({ext}): {e!r}")
         return 1
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
     print(f"OK {out}", flush=True)
     return 0
 

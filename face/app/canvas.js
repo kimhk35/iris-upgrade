@@ -85,6 +85,7 @@ window.Canvas = (() => {
       <div class="cv-head"><span class="cv-t">캔버스</span><span class="cv-live" title="파일이 바뀌면 저절로 다시 그립니다">실시간</span><span class="cv-sp"></span>
         <button type="button" class="cv-chip" data-cv="follow" title="가장 최근에 쓴 파일로 자동 이동">따라가기</button>
         <button type="button" class="cv-chip" data-cv="pick" title="미리보기에서 고칠 곳을 눌러 고릅니다(HTML)">고르기</button>
+        <button type="button" class="cv-chip" data-cv="app" title="이 PC의 프로그램(파워포인트·워드·한/글 등)으로 원본 열기" hidden>원본 열기</button>
         <button type="button" class="icon-btn" data-cv="ext" title="새 창에서 열기">⧉</button>
         <button type="button" class="icon-btn" data-cv="close" title="닫기 (Ctrl+Shift+K)">✕</button></div>
       <div class="cv-tabs" role="tablist"></div>
@@ -99,6 +100,7 @@ window.Canvas = (() => {
       if (a === 'follow') { st.follow = !st.follow; save(); return render(false); }
       if (a === 'pick') { pick = !pick; return render(true); }
       if (a === 'ext' && st?.cur) return window.open(curKind() === 'doc' ? `/api/doc?path=${encodeURIComponent(st.cur)}` : fsUrl(st.cur), '_blank');
+      if (a === 'app' && st?.cur) return void fetch('/api/open', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: st.cur }) });
       if (a === 'ask') return ask();
     });
     host.querySelector('.cv-pickin').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); ask(); } });
@@ -140,6 +142,7 @@ window.Canvas = (() => {
     host.querySelector('[data-cv="follow"]').classList.toggle('on', !!st.follow);
     const kind = curKind();
     const pb = host.querySelector('[data-cv="pick"]'); pb.hidden = kind !== 'html'; pb.classList.toggle('on', pick && kind === 'html');
+    host.querySelector('[data-cv="app"]').hidden = kind !== 'doc';
     host.querySelector('.cv-tabs').innerHTML = st.files.length
       ? st.files.map((f) => `<button type="button" role="tab" class="cv-tab${f.path === st.cur ? ' cur' : ''}${f.unseen ? ' new' : ''}" data-cvfile="${esc(f.path)}" title="${esc(f.path)}">${esc(base(f.path))}</button>`).join('')
       : '';
@@ -156,7 +159,7 @@ window.Canvas = (() => {
     if (kind === 'html') view.innerHTML = `<iframe class="cv-frame" sandbox="allow-scripts allow-popups allow-forms allow-modals" src="${fsUrl(p, v + (pick ? '&pick=1' : ''))}" title="${esc(base(p))}"></iframe>`;
     else if (kind === 'img') view.innerHTML = `<div class="cv-img"><img src="${fsUrl(p, v)}" alt="${esc(base(p))}"></div>`;
     else if (kind === 'pdf') view.innerHTML = `<iframe class="cv-frame" src="${fsUrl(p, v)}" title="${esc(base(p))}"></iframe>`;
-    else if (kind === 'doc') view.innerHTML = `<div class="cv-wait">문서를 PDF 로 바꾸는 중…</div><iframe class="cv-frame" src="/api/doc?path=${encodeURIComponent(p)}&v=${Math.round(mtime || Date.now())}" title="${esc(base(p))}" onload="this.previousElementSibling&&this.previousElementSibling.remove()"></iframe>`;
+    else if (kind === 'doc') view.innerHTML = `<div class="cv-wait">미리보기를 만드는 중… (처음에는 10초쯤 걸려요)</div><iframe class="cv-frame" src="/api/doc?path=${encodeURIComponent(p)}&v=${Math.round(mtime || Date.now())}#navpanes=0&view=FitH" title="${esc(base(p))}" onload="this.previousElementSibling&&this.previousElementSibling.remove()"></iframe>`;
     else {
       try {
         const r = await fetch(`/api/file/text?path=${encodeURIComponent(p)}`); const j = await r.json();

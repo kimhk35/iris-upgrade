@@ -29,7 +29,7 @@ export class ShareMeter {
     if (!d) return this.info();
     const now = this.now(); const cur = d.currentAccounts || {};
     for (const p of PROVIDERS) {
-      const acc = (d.accounts || []).find((a) => a.name === cur[p]); if (!acc) continue;
+      const acc = (d.accounts || []).find((a) => a.name === cur[p] && (a.provider || 'anthropic') === p); if (!acc) continue; // 다른 공급자 계정 이름이 오면 섞지 않는다(limits.mjs 와 같은 규칙, 2026-11-24)
       const q = acc.quota || {}, w = num(q.unified7d), h = num(q.unified5h), reset = q.unified7dReset || null;
       const s = this.state[p] ||= { account: acc.name, mineWeek: 0, mine5h: 0, reset, last: null };
       if (s.account !== acc.name) { Object.assign(s, { account: acc.name, mineWeek: 0, mine5h: 0, reset, last: null }); this.log(`share: ${p} 계정 바뀜 → 다시 시작`); }

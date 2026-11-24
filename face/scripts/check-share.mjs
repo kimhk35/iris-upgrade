@@ -30,6 +30,8 @@ a = await step(st({ w: 0.02, h: 0.02, reset: '2026-11-24T00:00:00Z', active: [{ 
 ok(a.mineWeek === 0, '새 주(초기화 시각 바뀜) = 0 부터');
 a = await step(st({ w: 0.05, h: 0.04, acc: 'other@school', active: [{ provider: 'anthropic' }] }));
 ok(a.mineWeek === 0 && a.account === 'other@school', '계정이 바뀌면 다시 시작');
+await step({ currentAccounts: { anthropic: 'other@school', codex: 'other@school' }, accounts: [{ name: 'other@school', provider: 'anthropic', quota: { unified7d: 0.05 } }] });
+ok(!m.info().codex, '코덱스 왕관에 클로드 이름이 와도 코덱스 몫으로 세지 않음(2026-11-24)');
 const m2 = new ShareMeter({ file: path.join(dir, 'share.json'), now: () => t, fetchStatus: async () => null });
 ok(m2.info().anthropic?.account === 'other@school', '데몬을 다시 켜도 이어짐(파일)');
 ok((await m2.sample()).anthropic.account === 'other@school', '대시보드가 꺼져 있으면 그대로');

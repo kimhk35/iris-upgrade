@@ -648,6 +648,10 @@ export function defaultRelayConfig({ randomBytes = crypto.randomBytes } = {}) {
     distributeSessions: false,
     sessionTitles: { enabled: false, width: 18 },
     eventLogging: 'hide',
+    // 사용량 자동 확인 5분마다(2.1.3, 2026-11-24 신고 "코덱스 사용량이 제대로 안 나옴"). 중계기 기본값은 꺼짐이라, 새로 설치한 PC 는
+    // 코덱스를 중계기로 실제로 쓰기 전까지 사용량이 비어 「미수신」·「—」로 보였다(11/19 엔 손으로 켜 둬서 됐고 11/21 재설치 뒤 사라짐).
+    // 읽기 전용 창구(/api/oauth/usage · wham/usage)라 사용량을 쓰지 않는다. 사용자가 끈 값(0)은 그대로 둔다.
+    quotaProbeSeconds: 300,
     blockedModels: [],
     accounts: [],
   };

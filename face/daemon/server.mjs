@@ -610,7 +610,14 @@ const server = http.createServer(async (req, res) => {
       try {
         const pdf = await toPdf(file, path.join(STATE, 'doc-cache'), log);
         return serveFile(res, pdf);
-      } catch (e) { log(`502 doc ${file}: ${e.message}`); return json(res, 502, { error: e.message }); }
+      } catch (e) {
+        log(`502 doc ${file}: ${e.message}`);
+        if (!/^(iframe|document|frame)$/.test(String(req.headers['sec-fetch-dest'] || ''))) return json(res, 502, { error: e.message });
+        // 미리보기 칸에서는 JSON 글자 대신 읽을 수 있는 안내(P18 2026-11-24)
+        const h = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        res.writeHead(502, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" });
+        return res.end(`<!doctype html><html lang="ko"><meta charset="utf-8"><title>미리보기 안내</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f4ef;color:#2b2a27;font:15px/1.7 "Malgun Gothic",sans-serif}main{max-width:30em;padding:24px;text-align:center}b{display:block;margin-bottom:6px;word-break:break-all}p{margin:0;color:#6b675f}</style><main><b>${h(path.basename(file))}</b>${h(e.message)}<p>원본은 그대로 있습니다. 「원본 열기」(대화에서는 ⧉)로 열어 볼 수 있어요.</p></main></html>`);
+      }
     }
     if (req.method === 'POST' && p === '/api/open') {
       // 원본 파일을 이 PC의 기본 앱(한/글·워드·엑셀 …)으로 연다. 브라우저가 못 여는 문서의 ⧉ 전용.
