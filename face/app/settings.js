@@ -152,7 +152,7 @@ window.Settings = (() => {
     renderNav();
   }
   // ---- 묶음과 오른쪽 목차(v2.87, 사용자 선택 = 시안 A′): 한 번에 한 묶음만. 마지막으로 본 묶음을 기억한다. ----
-  const PANES = ['design', 'session', 'ontology', 'tools', 'notify', 'mods', 'account', 'about']; // v2.90: 온톨로지·도구 묶음(app/ontology.js·tools.js — 보일 때 읽음)
+  const PANES = ['design', 'notify', 'session', 'sched', 'ontology', 'tools', 'mods', 'account', 'privacy', 'move', 'about']; // 2026-11-24 정리: 화면 · 일하기 · 안전 · IRIS 네 묶음. // v2.90: 온톨로지·도구 묶음(app/ontology.js·tools.js — 보일 때 읽음)
   let pane = (() => { try { const p = localStorage.getItem('iris.settings.pane'); return PANES.includes(p) ? p : 'design'; } catch { return 'design'; } })();
   let modsSum = '';
   // 미리보기 캔버스는 「디자인」 묶음이 보일 때만 돌린다(다른 묶음에서 숨은 캔버스 11개가 GPU 를 쓰지 않게)
@@ -181,6 +181,7 @@ window.Settings = (() => {
     set('#st-sum-session', `Claude ${optText('#st-perm')} · Codex ${optText('#st-approval')}`);
     set('#st-sum-ontology', '역할 캐릭터 · 폴더 나무');
     set('#st-sum-tools', 'Skill · MCP · Plugin');
+    set('#st-sum-sched', '정해 둔 때에 새 대화로'); set('#st-sum-privacy', `개인정보 확인 ${cfg.privacyCheck === false ? '꺼짐' : '켜짐'} · 앞 판 ${cfg.docVersions === false ? '꺼짐' : '보관'}`); set('#st-sum-move', '묶음 만들기 · 풀기');
     set('#st-sum-notify', cfg.notifyDone === false ? '꺼짐' : `끝나면 알림${cfg.notifyOs !== false ? ' · 윈도 알림' : ''}`);
     set('#st-sum-mods', modsSum);
     const items = auth?.info?.items || [], due = authDue(), hasAuth = !!(auth?.available || health?.features?.auth);
@@ -513,8 +514,8 @@ window.Settings = (() => {
     $('#st-math').addEventListener('input', onMathInput);
     $('#st-math').addEventListener('change', (e) => { if (e.target.id === 'st-math-f') { cfg.math = { ...cfg.math, formula: e.target.checked }; applyStage(); } save(); });
     const acl = $('#st-acl'); const aclNow = async () => { try { const j = await (await fetch('/api/records-acl')).json(); acl.checked = j.locked === true; acl.disabled = j.locked === null; } catch { acl.disabled = true; } };
-    acl.addEventListener('change', async () => { const on = acl.checked; if (on && !(await Dialog.confirm('대화 기록 폴더를 지금 윈도 계정만 볼 수 있게 할까요?\n\n다른 윈도 계정에서는 이 IRIS를 쓸 수 없게 돼요. 여기서 언제든 끌 수 있어요.', { okLabel: '켜기' }))) { acl.checked = false; return; } acl.disabled = true; try { const r = await fetch('/api/records-acl', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) }); const j = await r.json(); if (!r.ok) throw new Error(j.error); } catch (e) { Dialog.alert(e.message); } acl.disabled = false; aclNow(); });
-    document.addEventListener('iris:pane', (e) => { if (e.detail === 'account') aclNow(); if (e.detail === 'session') window.Schedule?.refresh(); }); aclNow();
+    acl.addEventListener('change', async () => { const on = acl.checked; if (on && !(await Dialog.confirm('대화 기록 폴더를 지금 윈도 계정만 볼 수 있게 할까요?\n\n다른 윈도 계정에서는 이 IRIS를 쓸 수 없게 돼요. 여기서 언제든 끌 수 있어요.', { okLabel: '켜기' }))) { aclNow(); return; } acl.disabled = true; try { const r = await fetch('/api/records-acl', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) }); const j = await r.json(); if (!r.ok) throw new Error(j.error); } catch (e) { Dialog.alert(e.message); } acl.disabled = false; aclNow(); });
+    document.addEventListener('iris:pane', (e) => { if (e.detail === 'privacy') aclNow(); if (e.detail === 'sched') window.Schedule?.refresh(); }); aclNow();
     $('#st-docver').addEventListener('change', (e) => pick({ docVersions: e.target.checked }));
     $('#st-docver-clear').addEventListener('click', async () => { if (!(await Dialog.confirm('보관한 앞 판을 모두 지울까요? 원본 문서는 그대로예요.', { okLabel: '지우기', danger: true }))) return; try { const j = await (await fetch('/api/doc/versions-clear', { method: 'POST' })).json(); Dialog.alert(`문서 ${j.cleared || 0}개의 앞 판을 지웠어요.`); } catch { Dialog.alert('지우지 못했어요.'); } });
     for (const b of document.querySelectorAll('[data-font]')) b.addEventListener('click', () => fontStep(Number(b.dataset.font)));

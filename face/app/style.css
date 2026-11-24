@@ -1109,6 +1109,15 @@ button.tl-pill[aria-pressed="true"] { border-color: var(--iris); background: var
 .mg-parts { gap: 12px; flex-wrap: wrap; font-size: 12.5px; } .mg-parts label { display: inline-flex; gap: 5px; align-items: center; } .mg-line { flex-wrap: wrap; justify-content: flex-end; } .mg-line .tl-in { width: 128px; margin: 0; } .mg-line input[type=file] { max-width: 210px; font-size: 12px; color: var(--ink-2); }
 .mg-ol { margin: 8px 0; padding-left: 20px; line-height: 1.75; white-space: normal; } .mg-note { font-size: 12.5px; color: var(--ink-3); white-space: normal; } .dlg-msg p { white-space: normal; margin: 4px 0; }
 .tl-cm-keys { margin-top: 8px; } .tl-cm-keys small { display: block; font-size: 11.5px; color: var(--ink-3); line-height: 1.55; margin-top: 4px; }
+/* 메뉴 정리(P18 2026-11-24) */
+:root { scrollbar-color: var(--line-2) transparent; }
+.st-nav-cap { padding: 10px 14px 3px; font-size: 10.5px; letter-spacing: .08em; color: var(--ink-3); } .st-nav-cap:first-child { padding-top: 2px; }
+@media (max-width: 980px) { .st-nav-cap { padding: 6px 0 0; height: 1px; overflow: hidden; border-top: 1px solid var(--line); margin: 5px 14px 0; font-size: 0; } }
+.st-nav-i, .st-nav-cap, .st-nav-foot { flex: none; } .st-nav-foot { position: sticky; bottom: -12px; padding-bottom: 12px; margin-bottom: -12px; background: var(--surface); }
+@media (max-height: 1040px) { .st-nav { gap: 0; } .st-nav-cap { padding: 6px 14px 1px; } .st-nav-i { padding-top: 5px; padding-bottom: 5px; } }
+@media (max-height: 860px) { .st-nav-t small { display: none; } }
+.mnu { position: relative; display: inline-flex; } .mnu-pop { position: fixed; inset: auto; margin: 0; color: var(--ink); z-index: 30; min-width: 172px; padding: 5px; background: var(--overlay); border: 1px solid var(--line-2); border-radius: 11px; box-shadow: 0 16px 40px rgba(0,0,0,.35); } .mnu-pop[hidden] { display: none; }
+.mnu-i { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px; border-radius: 7px; font-size: 13px; color: var(--ink); text-align: left; } .mnu-i:hover, .mnu-i:focus-visible { background: var(--iris-soft); outline: none; } .mnu-i.on { color: var(--iris); } .mnu-i[hidden] { display: none; } .mnu-i svg { flex: none; color: var(--ink-3); }
 .cv-work { animation: none !important; opacity: 1; }
 .cv-wait { position: absolute; inset: 0; display: grid; place-items: center; background: var(--base); }
 .cv-note { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px; background: var(--raised); }

@@ -117,9 +117,7 @@ window.Canvas = (() => {
         <button type="button" class="cv-chip" data-cv="follow" title="가장 최근에 쓴 파일로 자동 이동">따라가기</button>
         <button type="button" class="cv-chip" data-cv="pick" title="미리보기에서 고칠 곳을 눌러 고릅니다(HTML)">고르기</button>
         <button type="button" class="cv-chip" data-cv="cmp" title="AI가 고치기 전 판과 견주고 되돌립니다" hidden>앞 판</button>
-        <button type="button" class="cv-chip" data-cv="pdf" title="글자를 긁어 복사하거나 인쇄할 때" hidden>PDF로 보기</button>
-        <button type="button" class="cv-chip" data-cv="app" title="이 PC의 프로그램(파워포인트·워드·한/글 등)으로 원본 열기" hidden>원본 열기</button>
-        <button type="button" class="icon-btn" data-cv="ext" title="새 창에서 열기">⧉</button>
+        <span class="mnu"><button type="button" class="icon-btn" data-mnu aria-haspopup="menu" aria-expanded="false" title="더 보기" aria-label="더 보기">⋯</button><div class="mnu-pop" role="menu" hidden><button type="button" class="mnu-i" role="menuitem" data-cv="app" title="이 PC의 프로그램(파워포인트·워드·한/글 등)으로 원본 열기" hidden>원본 열기</button><button type="button" class="mnu-i" role="menuitem" data-cv="pdf" title="글자를 긁어 복사하거나 인쇄할 때" hidden>PDF로 보기</button><button type="button" class="mnu-i" role="menuitem" data-cv="ext">새 창에서 열기</button></div></span>
         <button type="button" class="icon-btn" data-cv="close" title="닫기 (Ctrl+Shift+K)">✕</button></div>
       <div class="cv-tabs" role="tablist"></div>
       <div class="cv-view"></div>
@@ -180,7 +178,7 @@ window.Canvas = (() => {
     const pb = host.querySelector('[data-cv="pick"]'); pb.hidden = kind !== 'html'; pb.classList.toggle('on', pick && kind === 'html');
     host.querySelector('[data-cv="app"]').hidden = kind !== 'doc';
     if (kind !== 'doc') host.querySelector('[data-cv="cmp"]').hidden = true;
-    const pd = host.querySelector('[data-cv="pdf"]'); pd.hidden = kind !== 'doc'; pd.classList.toggle('on', asPdf.has(st.cur));
+    const pd = host.querySelector('[data-cv="pdf"]'); pd.hidden = kind !== 'doc'; pd.classList.toggle('on', asPdf.has(st.cur)); pd.textContent = asPdf.has(st.cur) ? '원래 보기로' : 'PDF로 보기';
     host.querySelector('.cv-tabs').innerHTML = st.files.length
       ? st.files.map((f) => `<button type="button" role="tab" class="cv-tab${f.path === st.cur ? ' cur' : ''}${f.unseen ? ' new' : ''}" data-cvfile="${esc(f.path)}" title="${esc(f.path)}">${esc(base(f.path))}</button>`).join('')
       : '';

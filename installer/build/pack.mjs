@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -517,6 +518,16 @@ export async function pack({
   log(`pack: sanitize ok for ${gateFiles.length} pack-time file(s)`);
 
   // ---- 5. payload\ -> zip root, then the v2 manifest over what landed there
+  // 코드 서명 자리(P18 2026-11-24): IRIS_SIGN_CMD(프로그램 경로) 가 있을 때만, 우리가 쓴 설치 스크립트(.ps1)를 하나씩 넘긴다.
+  // 남이 만든 실행 파일(node·electron·python 등)은 서명하지 않는다. 하나라도 실패하면 빌드를 멈춘다(반만 서명된 판 금지).
+  if (process.env.IRIS_SIGN_CMD) {
+    for (const rel of ['installer/bootstrap.ps1', 'installer/uninstall.ps1', 'installer/lib/file-holders.ps1']) {
+      const r = spawnSync(process.env.IRIS_SIGN_CMD, [path.join(root, ...rel.split('/'))], { windowsHide: true, encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`pack: 코드 서명 실패 ${rel}: ${r.error?.message || r.stderr || r.status}`);
+    }
+    log('pack: 설치 스크립트 3개 코드 서명');
+  }
+
   const payloadDest = path.join(root, 'payload');
   copyTree(payloadSrc, payloadDest);
 

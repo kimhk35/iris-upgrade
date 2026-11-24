@@ -18,7 +18,14 @@ export async function listModels({ url = OLLAMA, timeoutMs = 1500 } = {}) {
 /** 8GB 그래픽에서 무난한 크기(2~6GB)를 기본으로 — 없으면 가장 작은 것 */
 export const defaultModel = (list) => (list.find((m) => /^(qwen|gemma)/.test(m.id) && m.size >= 2e9 && m.size <= 6e9) || list.find((m) => m.size >= 2e9 && m.size <= 6e9) || list[0])?.id || '';
 
-export const SYSTEM = '당신은 교사를 돕는 한국어 글쓰기·대화 도우미입니다. 글을 쓰고, 다듬고, 요약하고, 설명하는 부탁은 거절하지 말고 바로 결과를 보여 주세요. 사람 이름이나 번호가 나와도 사용자의 컴퓨터 안에서만 쓰이니 그대로 도와주세요. 답은 또렷하고 짧게 합니다. 다만 컴퓨터의 파일을 직접 열거나 저장하는 일과 인터넷 검색은 할 수 없으니, 그런 부탁에만 할 수 없다고 말하고 IRIS 의 다른 AI 를 권하세요. 모르는 것은 모른다고 하세요.';
+/** 한국어 요청에 다른 글자(한자·가나·로마자)로만 답했는가 — 작은 모델이 가끔 중국어로 답한다(2026-11-24 실측) */
+export function wrongLanguage(question, answer) {
+  const n = (s, r) => (String(s).match(r) || []).length, ko = /[가-힣]/g, han = /[\u4e00-\u9fff\u3040-\u30ff]/g;
+  const prose = String(answer).replace(/```[\s\S]*?```/g, ''); // 코드는 뺀다
+  if (n(question, ko) < 4 || n(question, han) > 3 || /영어|영문|중국어|일본어|한문|번역/.test(question)) return false;
+  return n(prose, han) > 8 && n(prose, han) > n(prose, ko) || (n(prose, ko) === 0 && n(prose, /[A-Za-z]/g) > 40);
+}
+export const SYSTEM = '반드시 한국어로만 답합니다. 중국어로 답하지 않습니다. 당신은 교사를 돕는 한국어 글쓰기·대화 도우미입니다. 글을 쓰고, 다듬고, 요약하고, 설명하는 부탁은 거절하지 말고 바로 결과를 보여 주세요. 사람 이름이나 번호가 나와도 사용자의 컴퓨터 안에서만 쓰이니 그대로 도와주세요. 답은 또렷하고 짧게 합니다. 다만 컴퓨터의 파일을 직접 열거나 저장하는 일과 인터넷 검색은 할 수 없으니, 그런 부탁에만 할 수 없다고 말하고 IRIS 의 다른 AI 를 권하세요. 모르는 것은 모른다고 하세요.';
 const strip = (s) => String(s || '').replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trim();
 
 /** 대화 한 차례. messages = [{role,content}], onToken(지금까지 글자 수). signal 로 멈춤. → 답 글 */

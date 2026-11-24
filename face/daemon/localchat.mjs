@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { chat, trimHistory, NAME_RE } from './localai.mjs';
+import { chat, trimHistory, NAME_RE, wrongLanguage } from './localai.mjs';
 
 const arg = (k) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : ''; };
 const model = arg('--model'), session = arg('--session'), record = arg('--record');
@@ -33,7 +33,8 @@ async function ask(text) {
   const ac = new AbortController(); busy = ac; const t0 = Date.now(); let n = 0, k = 0; const F = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
   const draw = () => out(`\r\x1b[2K${F[k++ % F.length]} Generating... (${Math.round((Date.now() - t0) / 1000)}s · ${n}자 · Esc 로 멈춤)`); draw(); const timer = setInterval(draw, 200);
   let answer = '', err = '';
-  try { answer = await chat({ model, messages: trimHistory(history), signal: ac.signal, onToken: (c) => { n = c; } }); }
+  try { answer = await chat({ model, messages: trimHistory(history), signal: ac.signal, onToken: (c) => { n = c; } });
+    if (wrongLanguage(q, answer)) { n = 0; const again = await chat({ model, messages: [...trimHistory(history).slice(0, -1), { role: 'user', content: `${q}\n\n(한국어로만 답해 주세요.)` }], signal: ac.signal, onToken: (c) => { n = c; } }); if (again.trim()) answer = again; } }
   catch (e) { err = ac.signal.aborted ? 'stop' : e.cause?.code === 'ECONNREFUSED' || /fetch failed/.test(e.message) ? '로컬 AI 프로그램(Ollama)이 꺼져 있어요. Ollama 를 켠 뒤 다시 보내 주세요.' : e.message; }
   clearInterval(timer); busy = null; out('\r\x1b[2K');
   if (err === 'stop') { write('user', { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] }); history.pop(); out('멈췄습니다.'); }

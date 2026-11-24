@@ -43,6 +43,7 @@ await t('로컬: 터미널 안 대화 — 여러 줄 붙여넣기 · 작업 중 
   const y = await term(id, rec); assert.ok(await y.wait(/앞 대화 2개/)); const n = seen.length; y.p.write('\x1b[200~이어서\x1b[201~'); await sleep(300); y.p.write('\r'); await y.wait(/반가워요/); assert.deepEqual(seen[n].messages.map((m) => m.content.slice(0, 2)).slice(1), ['첫 ', '안녕', '이어']); y.p.kill();
 });
 await t('로컬: Ollama 가 꺼져 있으면 쉬운 안내', async () => { const id = randomUUID(), rec = path.join(tmp, 'r', `${id}.jsonl`); const x = await term(id, rec, 'http://127.0.0.1:9'); await x.wait(/❯/); x.p.write('\x1b[200~안녕\x1b[201~'); await sleep(300); x.p.write('\r'); assert.ok(await x.wait(/Ollama\) ?이 꺼져|꺼져 있어요/, 8000)); x.p.kill(); });
+await t('로컬: 한국어 요청에 중국어·영어로만 답하면 알아챔(번역 부탁은 제외)', () => { assert.equal(L.wrongLanguage('격려 한 문장을 써 줘', '김민수同学的勤奋与努力我都看在眼里，你就像一块璞玉'), true); assert.equal(L.wrongLanguage('격려 한 문장을 써 줘', 'Keep going, you are doing great and I believe in you always.'), true); assert.equal(L.wrongLanguage('격려 한 문장을 써 줘', '김민수 학생, 잘하고 있어요(努力).'), false); assert.equal(L.wrongLanguage('이 문장을 중국어로 번역해 줘', '我相信你我相信你我相信你'), false); });
 await t('로컬: 다른 컴퓨터 주소는 따르지 않음', () => { const r = spawnSync(process.execPath, ['-e', "import('./daemon/localai.mjs').then(m=>console.log(m.OLLAMA))"], { cwd: FACE, encoding: 'utf8', env: { ...process.env, IRIS_OLLAMA_URL: 'http://evil.example:11434', OLLAMA_HOST: 'evil.example' } }); assert.equal(r.stdout.trim(), 'http://127.0.0.1:11434'); });
 srv.close();
 

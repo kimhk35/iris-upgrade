@@ -923,6 +923,7 @@
     const now = Date.now(); if (now - lastEscAt < 300) return; lastEscAt = now;
     if (renaming) { renaming.cancel(); return; }      // 이름 고치는 중 Esc = 고치기 취소만(작업 중단 아님, v2.85)
     if (Dialog.ownsEscape()) return;                   // 확인 창을 닫는 Esc 는 그 창의 것(작업 중단으로 새지 않게, P18 2026-11-24)
+    if (Menu.close()) return;                          // ⋯ · 첨부 작은 메뉴
     if (Templates.close() || ChatExport.close()) return; // 서식함 · 내보내기 작은 창
     if (Search.close()) return;                        // 지난 대화 검색 = 닫기만
     if (DocView.escape()) return;                      // 슬라이드 전체 화면 = Esc 로 닫기만(작업 중단 아님, P18 2026-11-24)

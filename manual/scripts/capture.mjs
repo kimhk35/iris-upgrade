@@ -92,6 +92,7 @@ try {
   const open = async (p, title) => { await p.locator('#session-list').getByText(title).first().click(); await sleep(1500); };
   const shot = async (p, name, marks = []) => {
     if (only.length && !only.includes(name)) return;
+    await p.evaluate(() => { const r = document.querySelector('#st-root'); if (r) r.textContent = 'C:' + String.fromCharCode(92) + 'IRIS'; }); // 공개 그림에 이 PC 사용자 이름이 든 시험 폴더 경로가 찍히지 않게
     await p.evaluate(clearMarks);
     const ok = await p.evaluate(MARK(), marks);
     await sleep(200); await p.screenshot({ path: path.join(OUT, `shot-${name}.png`) });

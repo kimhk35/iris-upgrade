@@ -53,13 +53,13 @@ window.ChatExport = (() => {
       box = document.createElement('div'); box.id = 'ex-pop'; box.className = 'tl-pop ex-pop'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', '대화 내보내기'); document.body.appendChild(box);
       box.addEventListener('click', (e) => { const f = e.target.closest('[data-f]'); if (f) { fmt = f.dataset.f; return draw(); } const b = e.target.closest('[data-x]'); if (b) b.dataset.x === 'save' ? save() : close(); });
       box.addEventListener('change', (e) => { if (e.target.matches('input')) { hide = e.target.checked; draw(); } });
-      document.addEventListener('pointerdown', (e) => { if (isOpen() && !busy && !e.target.closest('#ex-pop, #btn-export, #dlg')) close(); });
+      document.addEventListener('pointerdown', (e) => { if (isOpen() && !busy && !e.target.closest('#ex-pop, #btn-more, .mnu-pop, #dlg')) close(); });
     }
     let items = []; try { items = (await (await fetch(`/api/sessions/${s.id}/transcript`, { headers: opts.headers?.() || {} })).json()).items || []; } catch {}
     if (opts.current()?.id !== s.id) return;
     pairs = pick(items); box.hidden = false; draw(); box.querySelector('[data-x=save]').focus();
   }
   function close() { if (!isOpen() || busy) return false; box.hidden = true; return true; }
-  function init(o) { opts = o; btn = $('#btn-export'); btn?.addEventListener('click', () => (isOpen() ? close() : open())); }
+  function init(o) { opts = o; btn = $('#btn-more') || $('#btn-export'); $('#btn-export')?.addEventListener('click', () => (isOpen() ? close() : open())); }
   return { init, open, close, isOpen, _pick: pick, _html: (t, l, h) => { hide = h; return html(t, l, '시험'); } };
 })();
