@@ -375,7 +375,7 @@ window.Settings = (() => {
     const host = $('#st-hc'), btn = $('#st-hc-run'); btn.disabled = true; host.innerHTML = '<p class="st-hint">확인하는 중… (10초쯤 걸려요)</p>';
     try {
       const r = await fetch('/api/healthcheck'); const j = await r.json(); if (!r.ok) throw new Error(j.error);
-      const row = (x) => `<li class="hc-${x.level}"><i aria-hidden="true">${{ bad: '!', warn: '!', info: 'i', ok: '✓' }[x.level]}</i><span><b>${esc(x.label)}</b> ${esc(x.text)}${x.fix ? `<small>${esc(x.fix)}</small>` : ''}</span>${x.go ? `<button type="button" class="text-btn outline" data-go="${esc(x.go)}">열기</button>` : ''}</li>`;
+      const row = (x) => `<li class="hc-${x.level}"><i aria-hidden="true">${{ bad: '!', warn: '!', info: 'i', ok: '○' }[x.level]}</i><span><b>${esc(x.label)}</b> ${esc(x.text)}${x.fix ? `<small>${esc(x.fix)}</small>` : ''}</span>${x.go ? `<button type="button" class="text-btn outline" data-go="${esc(x.go)}">열기</button>` : ''}</li>`;
       const bad = j.list.filter((x) => x.level !== 'ok'), ok = j.list.filter((x) => x.level === 'ok'), red = bad.filter((x) => x.level === 'bad').length, yel = bad.filter((x) => x.level === 'warn').length;
       host.innerHTML = `<p class="hc-sum">${red ? `고칠 것 ${red}개${yel ? ` · 살필 것 ${yel}개` : ''}` : yel ? `살필 것 ${yel}개` : '모두 괜찮아요'}</p>${bad.length ? `<ul>${bad.map(row).join('')}</ul>` : ''}<details${bad.length ? '' : ' open'}><summary>괜찮은 것 ${ok.length}개</summary><ul>${ok.map(row).join('')}</ul></details>`;
     } catch (e) { host.innerHTML = `<p class="st-hint bad">점검하지 못했어요: ${esc(e.message)}</p>`; }
