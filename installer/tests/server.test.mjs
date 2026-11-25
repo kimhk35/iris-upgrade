@@ -1198,7 +1198,7 @@ test('인수 문서가 아직 없으면 중계기 성공이 그것을 지어내�
 
 test('report: POST /api/report/send 는 미리 보기(전송 0)와 전송(fetch 1회·사본 저장)을 가르고, 영혼이 없어도 된다', async () => {
   const calls = [];
-  const s = await start({ reportFetchFn: async (url, init) => { calls.push({ url, init }); return { status: 200 }; } });
+  const s = await start({ reportUrl: 'https://example.invalid/form', reportFetchFn: async (url, init) => { calls.push({ url, init }); return { status: 200 }; } });
   try {
     // 영혼이 정해지기 전(precheck 단계)에도 신고할 수 있어야 한다 — 설치가 그 앞에서 막힐 수도 있으니까.
     const pv = await (await post(s.url, '/api/report/send', { preview: true, memo: 'm', contact: 'c' })).json();
@@ -1222,8 +1222,19 @@ test('report: POST /api/report/send 는 미리 보기(전송 0)와 전송(fetch 
   }
 });
 
+test('report: 고도화판 기본값은 어디로도 보내지 않고 파일로만 남긴다', async () => {
+  const s = await start({ reportFetchFn: async () => { throw new Error('보내면 안 됨'); } });
+  try {
+    const r = await (await post(s.url, '/api/report/send', { memo: '멈춤' })).json();
+    assert.equal(r.ok, true); assert.equal(r.off, true); assert.equal(r.error, null);
+    assert.ok(fs.existsSync(r.savedTo));
+  } finally {
+    await s.close();
+  }
+});
+
 test('report: 보내기 실패는 ok:false + 까닭 + 사본 경로', async () => {
-  const s = await start({ reportFetchFn: async () => { throw new Error('getaddrinfo ENOTFOUND docs.google.com'); } });
+  const s = await start({ reportUrl: 'https://example.invalid/form', reportFetchFn: async () => { throw new Error('getaddrinfo ENOTFOUND docs.google.com'); } });
   try {
     const r = await (await post(s.url, '/api/report/send', {})).json();
     assert.equal(r.ok, false);

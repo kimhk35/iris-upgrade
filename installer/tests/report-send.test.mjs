@@ -82,6 +82,7 @@ test('report: 상한을 넘으면 자른다(진단·요약은 머리, 로그는 
 });
 
 test('report: 폼 인코딩은 항목 번호 8개 전부에 값을 싣고, 전송은 fetch 한 번(POST·urlencoded)', async () => {
+  const FORM = 'https://example.invalid/form';
   const payload = { id: 'R-1', version: '2', where: 'w', summary: 's', diagnostics: 'd', logs: 'l', memo: 'm', contact: 'c' };
   const body = encodeForm(payload);
   const parsed = new URLSearchParams(body);
@@ -89,19 +90,23 @@ test('report: 폼 인코딩은 항목 번호 8개 전부에 값을 싣고, 전�
   assert.equal([...parsed.keys()].length, 8);
 
   const calls = [];
-  const r = await sendReport(payload, { fetchImpl: async (url, init) => { calls.push({ url, init }); return { status: 200 }; } });
+  const r = await sendReport(payload, { url: FORM, fetchImpl: async (url, init) => { calls.push({ url, init }); return { status: 200 }; } });
   assert.equal(r.ok, true); assert.equal(r.status, 200); assert.equal(r.trimmed, false);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, REPORT_FORM_URL);
+  assert.equal(calls[0].url, FORM);
+  // 고도화판: 받는 곳이 비어 있으면 어디로도 보내지 않는다
+  assert.equal(REPORT_FORM_URL, '');
+  const off = await sendReport(payload, { fetchImpl: async () => { throw new Error('보내면 안 됨'); } });
+  assert.equal(off.off, true); assert.equal(off.ok, false); assert.equal(off.error, null);
   assert.equal(calls[0].init.method, 'POST');
   assert.match(calls[0].init.headers['Content-Type'], /application\/x-www-form-urlencoded/);
   assert.equal(calls[0].init.body, body);
 
-  const bad = await sendReport(payload, { fetchImpl: async () => ({ status: 400 }) });
+  const bad = await sendReport(payload, { url: FORM, fetchImpl: async () => ({ status: 400 }) });
   assert.equal(bad.ok, false); assert.equal(bad.status, 400);
-  const threw = await sendReport(payload, { fetchImpl: async () => { throw new Error('ENOTFOUND docs.google.com'); } });
+  const threw = await sendReport(payload, { url: FORM, fetchImpl: async () => { throw new Error('ENOTFOUND docs.google.com'); } });
   assert.equal(threw.ok, false); assert.match(threw.error, /ENOTFOUND/);
-  const none = await sendReport(payload, { fetchImpl: null });
+  const none = await sendReport(payload, { url: FORM, fetchImpl: null });
   assert.equal(none.ok, false);
 });
 
@@ -126,6 +131,7 @@ test('report: 접수번호는 시각+난수, pickState 는 정해진 키만', ()
 test('report: 폼 본문이 구글 한도(약 32 KB)를 넘으면 로그→진단→요약 순으로 줄여 28 KB 아래로 맞춘다(한글은 인코딩 바이트 기준)', async () => {
   const { fitForm, FORM_MAX_BYTES } = await import('../installer/lib/report-send.mjs');
   const ko = '설치 로그 한 줄 '.repeat(6000); // 한글은 인코딩하면 글자당 9바이트
+  const FORM = 'https://example.invalid/form';
   const big = { id: 'R-x', version: '2', where: 'w', summary: ko, diagnostics: ko, logs: ko, memo: '메모', contact: '' };
   assert.ok(encodeForm(big).length > FORM_MAX_BYTES * 5);
   const fit = fitForm(big);
@@ -138,7 +144,7 @@ test('report: 폼 본문이 구글 한도(약 32 KB)를 넘으면 로그→진�
   assert.equal(small.trimmed, false);
   // 실제 전송 경로도 줄인 본문을 보낸다
   let sentBytes = 0;
-  const r = await sendReport(big, { fetchImpl: async (url, init) => { sentBytes = init.body.length; return { status: 200 }; } });
+  const r = await sendReport(big, { url: FORM, fetchImpl: async (url, init) => { sentBytes = init.body.length; return { status: 200 }; } });
   assert.equal(r.ok, true); assert.ok(sentBytes <= FORM_MAX_BYTES); assert.equal(r.trimmed, true);
 });
 

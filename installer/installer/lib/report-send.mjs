@@ -13,7 +13,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { maskText } from '../setup/report.mjs';
 
-export const REPORT_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSc-wXnIOPaMU9XSj0UM_t1gOFFfnMAly9NDKNDKkEGUtmAxZA/formResponse';
+// 고도화판(P18 2026-11-25 사용자 선택): 원작자의 설문으로 고도화판 사용자의 신고가 가지 않게 비워 둔다 — 빈 값이면 어디로도 보내지 않고 파일로만 남긴다.
+// 받는 곳을 새로 만들면(사용자 계정의 설문) 주소와 아래 항목 번호를 함께 바꾼다.
+export const REPORT_FORM_URL = '';
 // 양식 항목 번호(2026-09-19 생성, Forms API questionId 를 십진수로 바꾼 값 — 응답 페이지의 FB_PUBLIC_LOAD_DATA_ 로 확인).
 export const FORM_FIELDS = Object.freeze({
   id: 'entry.1325620015',
@@ -190,6 +192,7 @@ export function fitForm(payload, { maxBytes = FORM_MAX_BYTES, fields = FORM_FIEL
 
 /** POST 한 번. 구글 폼은 접수되면 200(HTML) 을 준다. 실패는 4xx/5xx 또는 예외. → { ok, status, error? } */
 export async function sendReport(payload, { fetchImpl = globalThis.fetch, url = REPORT_FORM_URL, timeoutMs = 20_000 } = {}) {
+  if (!url) return { ok: false, off: true, status: null, error: null }; // 받는 곳 없음 = 보내지 않음
   if (typeof fetchImpl !== 'function') return { ok: false, status: null, error: 'fetch 없음' };
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), timeoutMs);

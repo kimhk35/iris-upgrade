@@ -915,7 +915,7 @@ export async function loginStatus({
       const noStart = !piped.manualSeen && !piped.url;
       const reason = noStart ? 'login-no-start' : 'login-exited';
       const message = noStart
-        ? '로그인 프로그램이 브라우저를 띄우기 전에 꺼졌습니다. 「다시 로그인」을 눌러 보고, 또 그러면 「개발자에게 신고하기」를 눌러 주세요.'
+        ? '로그인 프로그램이 브라우저를 띄우기 전에 꺼졌습니다. 「다시 로그인」을 눌러 보고, 또 그러면 「진단 파일 만들기」를 눌러 주세요.'
         : '로그인이 끝나기 전에 멈췄습니다. 「다시 로그인」을 누르면 처음부터 다시 시작합니다.';
       setLoginRecord(root, provider, { state: 'failed', cli: false, relay: false, reason, exitCode: piped.code ?? null }, deps);
       log(`login ${provider} failed reason=${reason} code=${piped.code ?? '?'}`);

@@ -374,8 +374,9 @@ export function startServer({
     ? (() => ({ ok: false, reason: 'IRIS_INSTALLER_NO_FACE_RELAUNCH=1' }))
     : defaultRelaunchFace,
   finishFn = defaultFinish,
-  // 「개발자에게 신고하기」(lib/report-send.mjs) — 시험은 가짜 fetch 를 넣는다.
+  // 「진단 파일 만들기」(lib/report-send.mjs) — 시험은 가짜 fetch 를 넣는다.
   reportFetchFn = globalThis.fetch,
+  reportUrl = undefined, // 시험용 받는 곳(기본 = report-send.mjs REPORT_FORM_URL, 비어 있으면 보내지 않음)
   // ⑦ 뒤 검사 12·13 다시 재기 — 시험은 가짜를 넣어 실제 중계기에 닿지 않게 한다.
   relayRecheckFn = null,
   // 2.0.38: 업데이트가 Claude Code 를 채울지 가르는 유무 검사(root → boolean) — 시험은 가짜를 넣는다.
@@ -1472,7 +1473,7 @@ export function startServer({
     sendJson(res, 200, { ok: true, path: serverLog, soulPath: soulLogPath() });
   }));
 
-  // 「개발자에게 신고하기」(2026-09-19): 화면 상태·진단 파일·로그 꼬리를 사용자 이름을 가린 채 묶어
+  // 「진단 파일 만들기」(2026-09-19): 화면 상태·진단 파일·로그 꼬리를 사용자 이름을 가린 채 묶어
   // 개발자의 접수 양식으로 보낸다. 사람이 단추를 눌렀을 때만 온다(자동 전송 없음). 사본은 로컬에 남긴다.
   // preview=true 면 보내지 않고 묶음만 돌려준다(화면이 "이런 내용을 보냅니다"를 먼저 보여 주게).
   routes.set('POST /api/report/send', withBody(async (body, req, res) => {
@@ -1487,10 +1488,11 @@ export function startServer({
       sendJson(res, 200, { ok: true, preview: true, id: payload.id, bytes, payload });
       return;
     }
-    const sent = await sendReport(payload, { fetchImpl: reportFetchFn });
+    const sent = await sendReport(payload, { fetchImpl: reportFetchFn, ...(reportUrl !== undefined ? { url: reportUrl } : {}) });
     const saved = saveReportCopy({ root, fallbackDir: logDir, payload, fs, sent });
     log(`report ${payload.id} sent=${sent.ok} status=${sent.status ?? '-'}${sent.error ? ` error=${sent.error}` : ''} bytes=${bytes} saved=${saved?.path ?? '-'}`);
-    sendJson(res, 200, { ok: sent.ok, id: payload.id, status: sent.status ?? null, error: sent.error ?? null, bytes, savedTo: saved?.path ?? null });
+    // 받는 곳이 없으면(off) 파일로 남긴 것이 성공이다
+    sendJson(res, 200, { ok: sent.off ? !!saved?.path : sent.ok, off: !!sent.off, id: payload.id, status: sent.status ?? null, error: sent.error ?? (sent.off ? saved?.error ?? null : null), bytes, savedTo: saved?.path ?? null });
   }));
 
   // =========================================================================
