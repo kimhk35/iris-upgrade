@@ -130,7 +130,10 @@
         <!-- 업데이트(v2.58, 2026-09-14): 절 머리의 단추 하나로 확인 → 내려받기 → 적용까지. 부품 행은 값만 보이는 .st-opt 모양. -->
         <section class="st-grp"><h3 class="st-h-row"><span id="st-update-h">업데이트</span><button id="st-update-act" class="text-btn outline" type="button">지금 확인</button></h3>
           <div id="st-update" class="upd"></div>
-          <label class="st-opt"><span class="st-opt-text">하루 한 번 새 판 확인<small>켜 두면 하루 한 번 새 판이 있는지만 읽습니다 — 내려받기는 위 단추를 누를 때만</small></span><input id="st-update-auto" class="sw" type="checkbox"></label></section>
+          <label class="st-opt"><span class="st-opt-text">켤 때 새 판 확인<small>켤 때와 하루 한 번 새 판이 있는지 읽습니다</small></span><input id="st-update-auto" class="sw" type="checkbox"></label>
+          <label class="st-opt child"><span class="st-opt-text">새 판을 뒤에서 미리 받기<small>받아 두고 바꿀지 물어봅니다. 데이터 요금이 드는 연결에서는 큰 판을 받지 않습니다</small></span><input id="st-update-fetch" class="sw" type="checkbox"></label></section>
+        <section class="st-grp"><h3 class="st-h-row"><span>IRIS 건강 점검</span><button id="st-hc-run" class="text-btn outline" type="button">점검하기</button></h3>
+          <div id="st-hc" class="hc" aria-live="polite"><p class="st-hint">로그인·인터넷·저장 공간·문서 프로그램·업데이트를 한 번에 확인합니다. 서버가 열리는지만 보고 아무것도 보내지 않습니다.</p></div></section>
         <section class="st-grp"><h3>정보</h3>
           <div class="st-opt"><span class="st-opt-text">IRIS 폴더<small><code id="st-root"></code></small></span></div>
           <div class="st-opt"><span class="st-opt-text">처음 쓰는 법<small>에이전트·온톨로지·도구를 다시 둘러보고 폴더를 더 만들 수 있습니다</small></span><button id="st-tutorial" class="text-btn outline" type="button">튜토리얼 다시 보기</button></div>
@@ -167,7 +170,7 @@
   <aside id="rail">
     <div class="rail-head">
       <button id="btn-rail" class="icon-btn" title="작업목록 접기/펴기 (Ctrl+B)"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
-      <span class="rail-title">작업목록</span><span id="rail-count" class="rail-count"></span>
+      <span class="mnu rail-mnu"><button type="button" class="rail-title" data-mnu aria-haspopup="menu" aria-expanded="false" title="작업목록 모양">작업목록 <i aria-hidden="true">▾</i></button><div class="mnu-pop" role="menu" hidden><button type="button" class="mnu-i" role="menuitemradio" data-group="">한 줄로 늘어놓기</button><button type="button" class="mnu-i" role="menuitemradio" data-group="folder">폴더별로 묶기</button></div></span><span id="rail-count" class="rail-count"></span>
       <button id="btn-search" class="icon-btn" title="지난 대화 검색 (Ctrl+Shift+F)" aria-label="지난 대화 검색"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.2"/><path d="M15.8 15.8 20 20"/></svg></button>
       <button id="btn-clean" class="icon-btn" hidden title="끝난 대화 지우기" aria-label="끝난 대화 지우기"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9.5 7V4.5h5V7"/><path d="M6.5 7l1 12.5h9l1-12.5"/><path d="M10 11v5M14 11v5"/></svg></button>
       <button id="btn-home" class="icon-btn" title="새 세션 (Ctrl+N)"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
@@ -244,6 +247,7 @@
         </span>
         <select id="sel-model" class="pick" title="모델"></select>
         <select id="sel-effort" class="pick" title="사고깊이"></select>
+        <button id="btn-compare" type="button" class="text-btn outline cmp-btn" title="같은 질문을 두 AI에 보내 나란히 봅니다">견주기</button>
         <span class="setup-spacer"></span>
         <button id="setup-apply" class="text-btn accent" hidden>이 조합으로 이어가기</button>
         <button id="setup-cancel" class="text-btn" hidden>취소</button>
@@ -315,6 +319,10 @@
 <script src="/app/schedule.js"></script>
 <script src="/app/migrate.js"></script>
 <script src="/app/search.js"></script>
+<script src="/app/drafts.js"></script>
+<script src="/app/palette.js"></script>
+<script src="/app/compare.js"></script>
+<script src="/app/whatsnew.js"></script>
 <script src="/app/canvas.js"></script>
 <script src="/app/main.js"></script>
 </body>

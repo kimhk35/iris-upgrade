@@ -27,20 +27,25 @@ window.Notify = (() => {
   const fmtDur = (ms) => { if (!ms || ms < 1000) return ''; const s = Math.round(ms / 1000); if (s < 60) return `${s}초`; const m = Math.floor(s / 60); return m < 60 ? `${m}분 ${s % 60}초` : `${Math.floor(m / 60)}시간 ${m % 60}분`; };
   const shortPath = (p) => String(p || '').split(/[\\/]/).filter(Boolean).slice(-1)[0] || p || '';
 
-  /** 알림 하나. { id, title, sub, status, force } — force = 설정·초점 규칙을 무시(설정의 미리보기). */
-  function push({ id, title, sub, status = 'idle', force = false }) {
+  /** 알림 하나. { id, title, sub, status, force, actions, sticky } — force = 설정·초점 규칙을 무시. actions = [{ label, main, run }] 단추, sticky = 누를 때까지 남음. */
+  function push({ id, title, sub, status = 'idle', force = false, actions = null, sticky = false }) {
     if (!force && !opts.enabled()) return null;
     const host = box();
     while (host.children.length >= MAX) host.firstElementChild.remove();
     const el = document.createElement('div'); el.className = `toast ${status}`; el.setAttribute('role', 'status');
     el.innerHTML = `<span class="dot ${esc(status)}"></span><span class="toast-body"><span class="toast-title">${esc(title)}</span><span class="toast-sub">${esc(sub || '')}</span></span><button class="toast-x" tabindex="-1" title="닫기">✕</button>`;
+    if (actions) { // 글이 길 수 있어 줄을 바꾸고 단추를 아래에
+      el.classList.add('act'); const bar = document.createElement('span'); bar.className = 'toast-acts';
+      for (const a of actions) { const b = document.createElement('button'); b.type = 'button'; b.tabIndex = -1; b.className = `text-btn ${a.main ? 'accent' : 'outline'}`; b.textContent = a.label; b.addEventListener('click', (e) => { e.stopPropagation(); close(); a.run?.(); }); bar.appendChild(b); }
+      el.querySelector('.toast-body').appendChild(bar);
+    }
     let timer = 0;
     const close = () => { clearTimeout(timer); el.classList.remove('in'); el.classList.add('out'); setTimeout(() => el.remove(), 220); };
-    const arm = () => { clearTimeout(timer); timer = setTimeout(close, TTL); };
+    const arm = () => { clearTimeout(timer); if (!sticky) timer = setTimeout(close, TTL); };
     // 초점을 뺏지 않는다: 누르는 순간의 기본 동작(초점 이동)을 막고 click만 처리
     el.addEventListener('pointerdown', (e) => e.preventDefault());
     el.querySelector('.toast-x').addEventListener('click', (e) => { e.stopPropagation(); close(); });
-    el.addEventListener('click', () => { close(); if (id) opts.onPick(id); });
+    el.addEventListener('click', () => { if (actions) return; close(); if (id) opts.onPick(id); });
     el.addEventListener('mouseenter', () => clearTimeout(timer)); el.addEventListener('mouseleave', arm);
     host.appendChild(el);
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('in')));

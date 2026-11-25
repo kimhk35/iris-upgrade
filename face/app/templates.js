@@ -59,7 +59,9 @@ window.Templates = (() => {
     }
     await load(); edit = null; box.hidden = false; draw(); btn.setAttribute('aria-expanded', 'true'); (box.querySelector('[data-b]') || box.querySelector('[data-tk]'))?.focus();
   }
+  /** 빠른 찾기(Ctrl+K)에서 고른 서식을 바로 펼친다. */
+  async function openAt(i) { await open(); if (list[i]) { k = i; draw(); (box.querySelector('[data-b]') || box.querySelector('[data-t=use]'))?.focus(); } }
   function close() { if (!isOpen()) return false; box.hidden = true; edit = null; btn.setAttribute('aria-expanded', 'false'); composer.focus(); return true; }
   function init(o) { composer = o.composer; btn = $('#btn-tpl'); btn?.addEventListener('click', () => (isOpen() ? close() : open())); }
-  return { init, open, close, isOpen, _filled: (t, v) => { vals = v; return filled(t); } };
+  return { init, open, openAt, close, isOpen, _filled: (t, v) => { vals = v; return filled(t); } };
 })();

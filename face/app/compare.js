@@ -16,7 +16,7 @@ window.Compare = (() => {
     box = document.createElement('div'); box.id = 'compare'; box.className = 'cmp'; box.hidden = true;
     box.innerHTML = `<div class="cmp-box" role="dialog" aria-modal="true" aria-label="두 AI 견주기">
       <div class="cmp-head"><b>두 AI 견주기</b><span class="cmp-folder"></span><span class="cv-sp"></span><button type="button" class="icon-btn" data-c="close" title="닫기 (Esc)">✕</button></div>
-      <div class="cmp-cols">${[0, 1].map((i) => `<section class="cmp-col" data-i="${i}"><div class="cmp-top"><select class="pick" data-agent aria-label="${i + 1}번째 AI"></select><select class="pick" data-model aria-label="${i + 1}번째 모델"></select><span class="cmp-st"></span><span class="cv-sp"></span><button type="button" class="text-btn outline" data-c="go" hidden>이 대화로 이어 가기</button></div><div class="cmp-chat"></div></section>`).join('')}</div>
+      <div class="cmp-cols">${[0, 1].map((i) => `<section class="cmp-col" data-i="${i}"><div class="cmp-top"><select class="pick" data-agent aria-label="${i + 1}번째 AI"></select><select class="pick" data-model aria-label="${i + 1}번째 모델"></select><span class="cmp-st"></span><span class="cv-sp"></span><button type="button" class="text-btn outline" data-c="go" hidden>이 대화로 이어 가기</button></div><div class="cmp-chat sub-chat"></div></section>`).join('')}</div>
       <div class="cmp-foot"><textarea class="cmp-q" rows="2" placeholder="두 AI에 함께 물어볼 것" spellcheck="false"></textarea><button type="button" class="text-btn accent" data-c="ask">함께 묻기</button></div>
       <p class="cmp-note">같은 질문을 두 번 보내므로 구독 사용량도 두 배예요. 파일은 고치지 않고 글로만 답해요. 두 대화는 작업목록에 남아요.</p></div>`;
     document.body.appendChild(box);

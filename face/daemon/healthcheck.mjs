@@ -60,7 +60,7 @@ export async function runHealth(ctx, deps = {}) {
   try { const f = path.join(ctx.stateDir, `.health-${process.pid}`); fs.writeFileSync(f, 'x'); fs.rmSync(f); add('write', '기록 저장', 'ok', '설정과 기록을 저장할 수 있어요.'); }
   catch { add('write', '기록 저장', 'bad', 'IRIS 폴더에 쓸 수 없어요.', '백신(랜섬웨어 보호)이 막았을 수 있어요. IRIS 폴더를 예외로 넣어 주세요.'); }
   const mem = ctx.memory?.();
-  if (mem && Number.isFinite(mem.freeGB)) { const t = `쓸 수 있는 메모리 ${mem.freeGB.toFixed(1)}GB.`; if (mem.freeGB < 2) add('mem', '메모리', 'bad', t, '쓰지 않는 대화를 끝내거나 다른 프로그램을 닫아 주세요.'); else if (mem.freeGB < 6) add('mem', '메모리', 'warn', t, '대화를 여러 개 열면 느려질 수 있어요.'); else add('mem', '메모리', 'ok', t); }
+  if (mem && Number.isFinite(mem.freeGB)) { const t = `쓸 수 있는 메모리 ${mem.freeGB.toFixed(1)}GB.`; if (mem.freeGB < 1) add('mem', '메모리', 'bad', t, '쓰지 않는 대화를 끝내거나 다른 프로그램을 닫아 주세요.'); else if (mem.freeGB < 2.5) add('mem', '메모리', 'warn', t, '대화를 여러 개 열면 느려질 수 있어요.'); else add('mem', '메모리', 'ok', t); }
 
   const [word, ppt, xls, hwp, hshow] = await Promise.all(['Word.Application', 'PowerPoint.Application', 'Excel.Application', 'HWPFrame.HwpObject', 'HShow.Application'].map((x) => has(x)));
   const no = [!word && '워드', !ppt && !hshow && 'PPT', !xls && '엑셀', !hwp && '한/글'].filter(Boolean);

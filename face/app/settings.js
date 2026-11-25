@@ -8,7 +8,7 @@ window.Settings = (() => {
   const BRAND = { name: 'IRIS', mark: 'cube', font: 'segoe-script', markSpeed: 2 }; // 고정 정체성 — 설정에서 바꿀 수 없다
   // 권한 기본값(2026-09-14 사용자 결정): 새 설치는 처음부터 최대 권한 — Claude 「전부 허용」, Codex 「묻지 않음」+「전체 접근」. 저장된 설정이 있으면 그 값이 우선.
   // intro = 켤 때마다 시작 인트로(P18, 2026-11-10 사용자 결정) · math = 수학 무대 값(속도·수식 표시·무대별 모양 값 — 표는 stars.js IRIS_MATH)
-  const DEF = { theme: 'indigo', stage: 'sphere', density: 1, pauseWhenDim: true, intro: true, sharePeople: 1, privacyCheck: true, docVersions: true, fontScale: 100, math: { speed: 1, formula: true, params: {} }, permission: 'bypassPermissions', approval: 'never', sandbox: 'danger-full-access', notifyDone: true, notifyOs: true }; // pauseWhenDim 기본 켬(2026-09-12 발열 사건): 저장된 설정이 있으면 그 값이 우선
+  const DEF = { theme: 'indigo', stage: 'sphere', density: 1, pauseWhenDim: true, intro: true, sharePeople: 1, privacyCheck: true, docVersions: true, fontScale: 100, railGroup: '', math: { speed: 1, formula: true, params: {} }, permission: 'bypassPermissions', approval: 'never', sandbox: 'danger-full-access', notifyDone: true, notifyOs: true }; // pauseWhenDim 기본 켬(2026-09-12 발열 사건): 저장된 설정이 있으면 그 값이 우선
   let cfg = { ...DEF }, health = null, open = false, themeKeys = new Set(), agents = null, previews = [], opts = {};
   const destroyPreviews = () => { for (const p of previews) { try { p.destroy(); } catch {} } previews = []; };
 
@@ -266,6 +266,7 @@ window.Settings = (() => {
     if (head && !head.dataset.iced) { head.innerHTML = Icons.svg('bolt', 15) + '<span>업데이트</span>'; head.dataset.iced = '1'; } // 아이콘은 icons.js 이름만(이모지 0)
     const dev = upd?.mode === 'dev';
     auto.checked = upd ? upd.enabled !== false : true; auto.disabled = !upd;
+    const fetchSw = $('#st-update-fetch'); if (fetchSw) { fetchSw.checked = upd ? upd.autoDownload !== false : true; fetchSw.disabled = !upd || upd.enabled === false || upd.mode === 'dev'; }
     // 단추 4종: 적용 중(비활성·진행) · 받아 둠 · 새 판 있음 · 그 밖(지금 확인)
     const a = upd?.applying;
     if (updBusy || a) {
@@ -296,6 +297,7 @@ window.Settings = (() => {
       dev ? `<div class="upd-line st-sub">${esc(DEV_NOTE)}</div>` : '',
       upd.checkError ? `<div class="upd-line st-sub bad">확인 실패: ${esc(upd.checkError)}</div>` : '',
       !upd.checkError && upd.lastResult && upd.lastResult.ok === false ? `<div class="upd-line st-sub bad">지난 내려받기 실패: ${esc(upd.lastResult.reason)}</div>` : '',
+      !dev && AUTO_SKIP[upd.autoSkip] && !upd.plan ? `<div class="upd-line st-sub">${AUTO_SKIP[upd.autoSkip]}</div>` : '',
       `<div class="upd-line st-sub">${when ? `마지막 확인 ${esc(when)}` : '아직 확인하지 않았습니다'}</div>`,
     ].join('');
     host.innerHTML = rows + reinstall + lines;
@@ -308,6 +310,7 @@ window.Settings = (() => {
       if (el.textContent) host.appendChild(el);
     }
   }
+  const AUTO_SKIP = { metered: '「데이터 요금이 드는 연결」로 표시된 인터넷이라 저절로 받지 않았어요. 위 단추를 누르면 받습니다.', disk: '저장 공간이 모자라 저절로 받지 않았어요.', failed: '여러 번 받지 못해 저절로 받기를 멈췄어요. 위 단추로 다시 해 볼 수 있어요.' };
   const DEV_NOTE = '개발 폴더에서 실행 중 — git pull로 갱신';
   async function loadUpdate() {
     try { const r = await fetch('/api/update'); upd = r.ok ? await r.json() : null; } catch { upd = null; }
@@ -318,16 +321,32 @@ window.Settings = (() => {
   function notice() {
     if (!upd || upd.enabled === false || upd.mode === 'dev') return;
     try { if (localStorage.getItem('iris.update.noticed')) return; localStorage.setItem('iris.update.noticed', '1'); } catch { return; }
-    Notify.push({ title: '업데이트 확인', sub: '하루 한 번 새 판을 확인합니다 — 설정에서 끌 수 있습니다', status: 'idle', force: true });
+    Notify.push({ title: '업데이트 확인', sub: '켤 때 새 판을 확인해 뒤에서 받아 둡니다 — 설정에서 끌 수 있습니다', status: 'idle', force: true });
   }
   /** 데몬의 {type:'update', …} 방송. info 가 실려 오면 그대로 갈아 끼우고, 내려받기 진행은 단추 글만 바꾼다. */
   function onUpdate(m) {
     if (m.info) { upd = m.info; updBusy = false; }
     else if (m.phase === 'download' && upd) upd.applying = { part: m.part, index: m.index || 1, count: m.count || 1, received: m.received, total: m.total };
     if (m.phase === 'error' || m.phase === 'ready' || m.phase === 'checked') updBusy = false;
+    if (m.phase === 'auto-start') Notify.push({ title: `새 판 ${m.version || ''}`, sub: `쓰시는 동안 뒤에서 받을게요${m.size ? ` · ${Math.max(1, Math.round(m.size / 1e6))}MB` : ''}`, status: 'idle', force: true });
+    if (m.phase === 'ready' && m.auto) askApply();
+    if (m.phase === 'auto' && upd?.autoSkip === 'metered') askMetered();
     if (open) renderUpdate();
   }
-  const setUpdate = (info) => { if (info) { upd = info; notice(); if (open) renderUpdate(); } };
+  // 받아 두고 묻기(P18 2026-11-25 사용자 선택): 켤 때마다 한 번만 묻고, 「나중에」면 다음에 켤 때 다시. 저절로 적용하지 않는다.
+  let askedFor = '', meteredFor = '';
+  function askApply() {
+    const p = upd?.plan; if (!p || askedFor === p.createdAt || upd.mode === 'dev') return; askedFor = p.createdAt;
+    const v = upd.headline?.version || p.items?.[0]?.version || '';
+    Notify.push({ title: `${v} 판을 받아 두었어요`, sub: '적용하면 IRIS가 닫혔다 다시 열립니다', status: 'idle', force: true, sticky: true, actions: [{ label: '지금 적용', main: true, run: () => updAct('apply-now') }, { label: '나중에' }] });
+  }
+  function askMetered() {
+    const v = upd?.headline?.version; if (!v || meteredFor === v) return;
+    try { if (localStorage.getItem('iris.update.metered') === v) return; localStorage.setItem('iris.update.metered', v); } catch {} meteredFor = v;
+    const mb = Math.round((upd.latest?.package?.size || 0) / 1e6);
+    Notify.push({ title: `새 판 ${v}이 있어요`, sub: `「데이터 요금이 드는 연결」로 표시된 인터넷이라 받지 않았어요${mb ? `(약 ${mb}MB)` : ''}`, status: 'idle', force: true, sticky: true, actions: [{ label: '지금 받기', main: true, run: () => updAct('apply') }, { label: '나중에' }] });
+  }
+  const setUpdate = (info) => { if (info) { upd = info; notice(); if (info.plan && info.headline) setTimeout(askApply, 2500); if (open) renderUpdate(); } };
   /** 적용기가 남긴 결과(데몬 hello 의 updateResult) → 토스트 한 개. */
   // 적용기 사유 낱말 → 한국어(P18, 2026-11-18). 모르는 사유는 그대로 보인다.
   const UPD_REASON = {
@@ -351,6 +370,17 @@ window.Settings = (() => {
     const why = bad ? (UPD_REASON[bad.reason] || bad.reason || '') : '';
     Notify.push({ title: r?.ok && !bad ? '업데이트 완료' : '업데이트 일부 실패', sub: [okList.join(' · '), bad ? `실패: ${(UPD_PART[bad.kind] || [bad.kind])[0]} — ${why}` : ''].filter(Boolean).join(' / ') || '적용을 마쳤습니다', status: bad ? 'attention' : 'idle', force: true });
   }
+  // ---- IRIS 건강 점검(P18 2026-11-25) — 데몬 healthcheck.mjs 의 결과를 나쁜 것부터. 정상은 접어 둔다. ----
+  async function healthCheck() {
+    const host = $('#st-hc'), btn = $('#st-hc-run'); btn.disabled = true; host.innerHTML = '<p class="st-hint">확인하는 중… (10초쯤 걸려요)</p>';
+    try {
+      const r = await fetch('/api/healthcheck'); const j = await r.json(); if (!r.ok) throw new Error(j.error);
+      const row = (x) => `<li class="hc-${x.level}"><i aria-hidden="true">${{ bad: '!', warn: '!', info: 'i', ok: '✓' }[x.level]}</i><span><b>${esc(x.label)}</b> ${esc(x.text)}${x.fix ? `<small>${esc(x.fix)}</small>` : ''}</span>${x.go ? `<button type="button" class="text-btn outline" data-go="${esc(x.go)}">열기</button>` : ''}</li>`;
+      const bad = j.list.filter((x) => x.level !== 'ok'), ok = j.list.filter((x) => x.level === 'ok'), red = bad.filter((x) => x.level === 'bad').length, yel = bad.filter((x) => x.level === 'warn').length;
+      host.innerHTML = `<p class="hc-sum">${red ? `고칠 것 ${red}개${yel ? ` · 살필 것 ${yel}개` : ''}` : yel ? `살필 것 ${yel}개` : '모두 괜찮아요'}</p>${bad.length ? `<ul>${bad.map(row).join('')}</ul>` : ''}<details${bad.length ? '' : ' open'}><summary>괜찮은 것 ${ok.length}개</summary><ul>${ok.map(row).join('')}</ul></details>`;
+    } catch (e) { host.innerHTML = `<p class="st-hint bad">점검하지 못했어요: ${esc(e.message)}</p>`; }
+    btn.disabled = false; btn.textContent = '다시 점검';
+  }
   async function updAct(act) {
     if (act === 'check') { updBusy = true; renderUpdate(); try { const r = await fetch('/api/update/check', { method: 'POST' }); upd = r.ok ? await r.json() : upd; if (!r.ok) Dialog.alert('확인 실패: 릴리스를 읽지 못했습니다.'); } catch (e) { Dialog.alert(`확인 실패: ${e.message}`); } finally { updBusy = false; renderUpdate(); } return; }
     if (act === 'apply') {
@@ -366,7 +396,7 @@ window.Settings = (() => {
       act = 'confirm-apply';
     }
     if (act === 'apply-now' || act === 'confirm-apply') {
-      const n = opts.sessionCount?.() ?? 0;
+      const n = opts.liveCount?.() ?? opts.sessionCount?.() ?? 0;
       const kinds = (upd?.plan?.items || []).map(i => `${(UPD_PART[i.kind] || [i.kind])[0]} v${i.version}`).join(' · ');
       const msg = `받아 둔 새 판을 지금 적용할까요?\n\n${kinds}\n\n세션 ${n}개가 끝나고 적용 뒤 자동으로 다시 열립니다. IRIS 창도 잠시 닫혔다 스스로 다시 켜집니다.`;
       if (!(await Dialog.confirm(msg, { okLabel: '지금 적용', cancelLabel: '나중에' }))) { renderUpdate(); return; }
@@ -499,6 +529,7 @@ window.Settings = (() => {
   function fontStep(d) { pick({ fontScale: d ? Math.max(80, Math.min(160, fontNow() + d)) : 100 }); }
   function pick(patch) { Object.assign(cfg, patch); applyAll(); save(); renderPanel(); }
   /** 계정 공유 사람 수(1~50) — 설정 칸과 머리줄 「계정 공유」 작은 창(main.js TeamPop)이 같은 길로 저장한다. */
+  function setRailGroup(v) { pick({ railGroup: v === 'folder' ? 'folder' : '' }); }
   function setSharePeople(n) {
     const v = Math.max(1, Math.min(50, Math.round(Number(n) || 1)));
     const inp = $('#st-people'); if (inp) inp.value = v;
@@ -559,6 +590,13 @@ window.Settings = (() => {
       catch (err) { Dialog.alert(`설정을 바꾸지 못했습니다: ${err.message}`); }
       renderUpdate();
     });
+    $('#st-update-fetch').addEventListener('change', async (e) => {
+      try { const r = await fetch('/api/update/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ autoDownload: e.target.checked }) }); if (r.ok) upd = await r.json(); }
+      catch (err) { Dialog.alert(`설정을 바꾸지 못했습니다: ${err.message}`); }
+      renderUpdate();
+    });
+    $('#st-hc-run').addEventListener('click', healthCheck);
+    $('#st-hc').addEventListener('click', (e) => { const b = e.target.closest('[data-go]'); if (!b) return; if (b.dataset.go === 'dash') { hide(); document.dispatchEvent(new CustomEvent('iris:dash')); } else showPane(b.dataset.go); });
     loadUpdate();
     // 인증(v2.84): 절 머리 「다시 확인」 + 행마다 갱신 단추
     $('#st-auth-act')?.addEventListener('click', async () => { authBusy = true; renderAuth(); await loadAuth(true); authBusy = false; renderAuth(); });
@@ -572,5 +610,5 @@ window.Settings = (() => {
     fetch('/api/health').then(r => r.json()).then(async (h) => { health = h; applyMaker(); loadLimits(); await pullServer(); applyAll(); }).catch(() => {});
     loadLimits(); setInterval(loadLimits, 60000);
   }
-  return { init, show, hide, about, showPane, setSharePeople, fontStep, pane: () => pane, isOpen: () => open, get: () => cfg, health: () => health, refreshModules: () => { if (open) renderMods(); }, installModule: (name) => modAct(name, 'install'), isInstalling: (name) => installing.has(name), onUpdate, setUpdate, showUpdateResult, setAuth, onAuth };
+  return { init, show, hide, about, showPane, setSharePeople, setRailGroup, fontStep, pane: () => pane, isOpen: () => open, get: () => cfg, health: () => health, refreshModules: () => { if (open) renderMods(); }, healthCheck, checkUpdate: () => updAct('check'), installModule: (name) => modAct(name, 'install'), isInstalling: (name) => installing.has(name), onUpdate, setUpdate, showUpdateResult, setAuth, onAuth };
 })();

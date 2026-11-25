@@ -19,12 +19,13 @@ import { readLimits } from './limits.mjs';
 import { findRoot, rootName, Settings } from './workspace.mjs';
 import { dashDir, dashPort, sweeperPath, pythonExe } from './paths.mjs';
 import { MemoryMonitor } from './memory.mjs';
-import { toPdf, isConvertible } from './doc2pdf.mjs';
+import { toPdf, isConvertible, pyCandidates } from './doc2pdf.mjs';
 import { openPages, pageFile, pageHashes, pageText, sweepCache, ID_RE } from './docpages.mjs';
 import { searchSessions } from './search.mjs';
 import { DocVersions } from './docversions.mjs';
 import { extractText } from './doctext.mjs';
 import { readText, previewHtml, depsMtime } from './canvasfile.mjs';
+import { runHealth } from './healthcheck.mjs';
 import { Templates } from './templates.mjs';
 import { exportDoc } from './export.mjs';
 import { listModels, defaultModel } from './localai.mjs';
@@ -505,6 +506,13 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/auth/renew') { const b = await readBody(req); const r = await auth.renew(String(b.id || '')); return json(res, r.ok ? 200 : 400, { ...r, auth: auth.public() }); }
     }
     // ---- 업데이트(v2.58): 확인·설정·내려받기·적용. 전부 같은 출처만(화면에서만 부른다). ----
+    // IRIS 건강 점검(P18 2026-11-25): 읽기만 · 열쇠 값과 계정 이름은 싣지 않는다
+    if (req.method === 'GET' && p === '/api/healthcheck') {
+      try {
+        const list = await runHealth({ root: WS_ROOT, stateDir: STATE, agents: () => agentStatus(), auth: () => (auth.available ? auth.public().info : null), memory: () => { const s = memory.latest(); return s && s.rt ? { freeGB: s.rt - s.ru } : null; }, docPython: () => pyCandidates('office').length > 0, proxyPort: DASH_AVAILABLE ? Number(process.env.IRIS_RELAY_PORT || 3456) : null, update: () => updater.info() });
+        log(`healthcheck: ${list.filter((x) => x.level === 'bad').length} bad ${list.filter((x) => x.level === 'warn').length} warn`); return json(res, 200, { list, at: Date.now() });
+      } catch (e) { log(`healthcheck: ${e.message}`); return json(res, 500, { error: e.message }); }
+    }
     if (req.method === 'GET' && p === '/api/update') return json(res, 200, updater.info());
     if (p.startsWith('/api/update/') && req.method === 'POST') {
       if (!sameOrigin(req)) { log(`403 update ${p}: origin=${String(req.headers.origin || '(none)').slice(0, 120)}`); return json(res, 403, { error: 'forbidden origin' }); }

@@ -110,7 +110,7 @@
     // 세션 모드에서는 조합 줄을 감춘다. 입력창의 조합 아이콘을 누르면 '이어가기' 모드로 나타난다.
     $('#setup').hidden = !!s && setupMode !== 'switch';
     $('#setup').classList.toggle('switching', setupMode === 'switch');
-    $('#btn-folder').hidden = setupMode === 'switch';
+    $('#btn-folder').hidden = setupMode === 'switch'; $('#btn-compare').hidden = !!s;
     $('#setup-apply').hidden = setupMode !== 'switch'; $('#setup-cancel').hidden = setupMode !== 'switch';
     $('#btn-tune').hidden = !s; $('#btn-tune').classList.toggle('active', setupMode === 'switch');
   }
@@ -147,7 +147,7 @@
     ws.onclose = () => { $('#link-dot').className = 'link-dot bad'; setTimeout(connect, 1500); };
     ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data);
-      if (m.type === 'hello') { sessions = visibleOnly(m.sessions); if (m.subs) for (const [id, l] of Object.entries(m.subs)) SubPanel.setList(id, l); bgMap.clear(); if (m.bg) for (const [id, l] of Object.entries(m.bg)) bgMap.set(id, l); if (Array.isArray(m.modules)) setModules(m.modules); if (m.update) Settings.setUpdate(m.update); if (m.updateResult) Settings.showUpdateResult(m.updateResult); renderSetup(m.setup); Handoff.apply(m.handoff); applyLeadAgent(m.handoff); Tutorial.maybeOpen(m.handoff); if (m.mem) MemGauge.onSample(m.mem); if (m.auth) Settings.setAuth(m.auth); render(); }
+      if (m.type === 'hello') { sessions = visibleOnly(m.sessions); if (m.subs) for (const [id, l] of Object.entries(m.subs)) SubPanel.setList(id, l); bgMap.clear(); if (m.bg) for (const [id, l] of Object.entries(m.bg)) bgMap.set(id, l); if (Array.isArray(m.modules)) setModules(m.modules); if (m.update) Settings.setUpdate(m.update); if (m.updateResult) Settings.showUpdateResult(m.updateResult); renderSetup(m.setup); Handoff.apply(m.handoff); applyLeadAgent(m.handoff); Tutorial.maybeOpen(m.handoff); if (m.mem) MemGauge.onSample(m.mem); if (m.auth) Settings.setAuth(m.auth); render(); setTimeout(() => WhatsNew.maybe({ updated: !!m.updateResult?.items?.some((i) => i.ok), used: sessions.length > 0, busy: Tutorial.isOpen() }), 1800); }
       else if (m.type === 'shutdown') showQuitting();                                                       // 전부 종료 시작(v2.97) — 어느 창·탭이 시작했든 「종료하는 중」
       else if (m.type === 'mem') MemGauge.onSample(m.s);                                                    // 메모리 계기판(v2.78): 2초마다 실제 RAM·커밋
       else if (m.type === 'setup') renderSetupBar(m.progress);                                                // 세팅 진행 막대(v2.65)
@@ -191,8 +191,22 @@
       const rank = new Map(order.map((id, i) => [id, i]));
       sessions = sessions.map((s, i) => ({ s, k: rank.has(s.id) ? rank.get(s.id) : order.length + i })).sort((a, b) => a.k - b.k).map(x => x.s);
     }
+    if (grouped()) { const first = new Map(); for (const s of sessions) { const g = groupOf(s); if (!first.has(g)) first.set(g, first.size); } sessions = sessions.map((s, i) => ({ s, i })).sort((a, b) => first.get(groupOf(a.s)) - first.get(groupOf(b.s)) || a.i - b.i).map((x) => x.s); } // 같은 폴더끼리 — 화면 차례와 Ctrl+1~9 가 같게
     sessions = [...sessions.filter(s => s.pinned), ...sessions.filter(s => !s.pinned)]; // 고정(P18 2026-11-19)은 맨 위 묶음 — 묶음 안 순서는 끌어 놓은 순서 그대로
   }
+  // 폴더별로 묶기(P18 2026-11-25 4차 6번): 작업목록 ▾ 에서 고름. 접은 폴더는 기억하고, 보고 있는 대화는 접혀 있어도 보인다.
+  const grouped = () => Settings.get().railGroup === 'folder';
+  const groupOf = (s) => String(s.cwd || '').replace(/[\\/]+$/, '').toLowerCase();
+  let folded = new Set(); try { folded = new Set(JSON.parse(localStorage.getItem('iris.railFold') || '[]')); } catch {}
+  function groupHead(list, s, from) {
+    const g = groupOf(s), mine = sessions.slice(from).filter((x) => !x.pinned && groupOf(x) === g), shut = folded.has(g);
+    const st = mine.some((x) => viewStatus(x) === 'attention') ? 'attention' : mine.some((x) => viewStatus(x) === 'busy') ? 'busy' : '';
+    const h = document.createElement('li'); h.className = `sgroup sfold-h${shut ? ' shut' : ''}`;
+    h.innerHTML = `<button type="button" aria-expanded="${!shut}" title="${esc(s.cwd)}"><i aria-hidden="true">▾</i><span>${esc(shortPath(s.cwd))}</span>${shut && st ? `<span class="dot ${st}"></span>` : ''}<small>${mine.length}</small></button>`;
+    h.firstChild.onclick = () => { if (shut) folded.delete(g); else folded.add(g); try { localStorage.setItem('iris.railFold', JSON.stringify([...folded].slice(-200))); } catch {} render(); };
+    list.appendChild(h);
+  }
+  for (const b of document.querySelectorAll('[data-group]')) b.addEventListener('click', () => { Settings.setRailGroup(b.dataset.group); render(); });
   let dragId = null;
   function moveSession(fromId, toId, after) {
     if (!fromId || !toId || fromId === toId) return;
@@ -207,14 +221,16 @@
     sortSessions();
     const list = $('#session-list');
     if (!renaming) { list.innerHTML = ''; // 이름을 고치는 동안은 목록을 다시 그리지 않는다(상태 방송마다 입력칸이 날아가지 않게, v2.85)
-    const pinnedN = sessions.filter(s => s.pinned).length;
+    const pinnedN = sessions.filter(s => s.pinned).length; const byFolder = grouped(); let lastG = null;
+    for (const b of document.querySelectorAll('[data-group]')) b.setAttribute('aria-checked', String(b.dataset.group === (byFolder ? 'folder' : '')));
     sessions.forEach((s, i) => {
       // 고정 묶음 머리(P18 2026-11-19): 고정한 대화가 있을 때만 「고정됨」·「대화」 두 머리를 넣는다
-      if (pinnedN && (i === 0 || i === pinnedN)) { const h = document.createElement('li'); h.className = 'sgroup'; h.textContent = i === 0 ? '고정됨' : '대화'; list.appendChild(h); }
+      if (pinnedN && (i === 0 || (i === pinnedN && !byFolder))) { const h = document.createElement('li'); h.className = 'sgroup'; h.textContent = i === 0 ? '고정됨' : '대화'; list.appendChild(h); }
+      if (byFolder && !s.pinned) { const g = groupOf(s); if (g !== lastG) { lastG = g; groupHead(list, s, i); } if (folded.has(g) && s.id !== current) return; }
       const li = document.createElement('li'); li.className = 'srow' + (s.id === current ? ' active' : '') + (s.pinned ? ' pinned' : ''); li.dataset.id = s.id; li.draggable = true;
       li.innerHTML = `<span class="dot ${viewStatus(s)}" title="${statusText(s)}"></span>
         <span class="sname" title="${esc(`${s.title || shortPath(s.cwd)}\n(두 번 클릭 · F2 = 이름 바꾸기)`)}"><span class="stitle">${esc(s.title || shortPath(s.cwd))}</span>${liveN(s.id) ? `<span class="subn${SubPanel.running(s.id) || bgN(s.id) ? '' : ' quiet'}" title="${esc([`살아 있는 보조 작업 ${SubPanel.alive(s.id)}개(실행 중 ${SubPanel.running(s.id)}) · 배경 작업 ${bgN(s.id)}개`, ...bgLines(s.id)].join('\n'))}">⁺${liveN(s.id)}</span>` : ''}</span><span class="sside"><span class="sidx"${s.pinned ? ' title="고정됨"' : ''}>${s.pinned ? Icons.svg('pin', 13) : i + 1 - (pinnedN && !s.pinned ? pinnedN : 0)}</span><button class="srename" title="이름 바꾸기 (F2)" aria-label="이름 바꾸기">${Icons.svg('pencil', 14)}</button><button class="smore" title="고정 · 이름 바꾸기 · 삭제 (오른쪽 클릭도 됨)" aria-label="메뉴">${Icons.svg('more', 14)}</button></span>
-        <span class="smeta"><span class="chip ${s.agent}">${AGENT_KO[s.agent]}</span> ${s.title ? `<span class="sfold" title="${esc(s.cwd)}">${esc(shortPath(s.cwd))}</span> · ` : ''}${esc(s.modelLabel || s.model)}${effTxt(esc(s.effort || ''))}${permText(s) ? ' · ' + esc(permText(s)) : ''} · ${statusText(s)}</span>`;
+        <span class="smeta"><span class="chip ${s.agent}">${AGENT_KO[s.agent]}</span> ${s.id !== current && Drafts.has(s.id) ? '<span class="sdraft" title="보내지 않은 글이 있어요">쓰던 글</span> · ' : ''}${s.title && !(byFolder && !s.pinned) ? `<span class="sfold" title="${esc(s.cwd)}">${esc(shortPath(s.cwd))}</span> · ` : ''}${esc(s.modelLabel || s.model)}${effTxt(esc(s.effort || ''))}${permText(s) ? ' · ' + esc(permText(s)) : ''} · ${statusText(s)}</span>`;
       li.onclick = () => { if (s.id === current && setupMode === 'new') return; select(s.id); }; // 이미 보는 줄은 다시 그리지 않는다 — 두 번 클릭의 둘째 클릭이 사라진 줄에 떨어지지 않게(v2.85)
       li.querySelector('.srename').onclick = (e) => { e.stopPropagation(); startRename(s.id, li.querySelector('.stitle')); }; // 연필(v2.86) = 선택하지 않고 그 자리에서 고친다
       li.querySelector('.smore').onclick = (e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); RowMenu.open(s.id, r.right, r.bottom + 4); }; // ⋯ 줄 메뉴(P18 2026-11-19)
@@ -252,6 +268,7 @@
   // 배경 작업은 파란 도는 고리 + ⁺N·머리 툴팁으로만 보인다 — 대화 아래 띠(v2.81)는 v2.81.2 에서 사용자 요청으로 뺐다.
   setInterval(() => { const s = cur(); if (s && bgN(s.id)) { renderHead(); } }, 30000); // 툴팁의 'N분째'를 30초마다 새로
   function renderComposer() {
+    Drafts.sync(current); // 입력칸의 글은 대화마다 따로(drafts.js)
     const s = cur(); const fb = $('#btn-folder'); const fn = $('#folder-name'); const ta = $('#composer-text');
     if (s) { fb.className = 'folder-btn locked'; fn.textContent = shortPath(s.cwd); fb.title = `이 세션의 폴더: ${s.cwd} — 누르면 다른 폴더에서 새 요청`; ta.placeholder = ''; }
     else if (folder) { fb.className = 'folder-btn picked'; fn.textContent = folder.name; fb.title = folder.path; ta.placeholder = ''; }
@@ -324,7 +341,7 @@
     if (!(await Dialog.confirm(msg, { okLabel: '지우기', danger: true }))) return;
     try {
       if (alive) await api('DELETE', `/api/sessions/${id}`); else await api('POST', `/api/sessions/${id}/forget`);
-      sessions = sessions.filter(x => x.id !== id); if (current === id) goHome(); else render();
+      sessions = sessions.filter(x => x.id !== id); if (current === id) goHome(); else render(); Drafts.forget(id);
     } catch (e) { Dialog.alert('지우지 못했습니다: ' + e.message); }
   }
   async function cleanEnded() {
@@ -423,7 +440,7 @@
   $('#btn-mode-chat').onclick = () => setMode('chat'); $('#btn-mode-term').onclick = () => setMode('term');
 
   // ---------- 폴더 ----------
-  FolderPicker.init({ onPick: (f) => { folder = { path: f.path, rel: f.rel, name: f.name }; if (current) { current = null; setupMode = 'new'; send({ type: 'detach' }); Transcript.clear(); } render(); $('#composer-text').focus(); } });
+  FolderPicker.init({ onPick: (f) => { folder = { path: f.path, rel: f.rel, name: f.name }; if (current) { Drafts.carry(null); current = null; setupMode = 'new'; Canvas.onSession(null); send({ type: 'detach' }); Transcript.clear(); } render(); $('#composer-text').focus(); } });
   const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const relOf = (p) => {
     const root = Settings.health()?.root;
@@ -436,11 +453,11 @@
   // ---------- 첨부: 사진·파일(업로드 → 경로 삽입) · 카메라 · 음성(준비 중) ----------
   const attachments = [];
   function renderAttach() { $('#attach-list').innerHTML = attachments.map((a, i) => `<span class="attach"><code title="${esc(a.path)}">${esc(a.name)}</code><button data-i="${i}" title="빼기">✕</button></span>`).join(''); }
-  $('#attach-list').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { attachments.splice(Number(b.dataset.i), 1); renderAttach(); } });
+  $('#attach-list').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { attachments.splice(Number(b.dataset.i), 1); renderAttach(); Drafts.stash(); } });
   async function upload(file, name) {
     const r = await fetch('/api/upload', { method: 'POST', headers: { 'x-file-name': encodeURIComponent(name || file.name) }, body: file });
     const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText);
-    attachments.push({ name: name || file.name, path: j.path }); renderAttach();
+    attachments.push({ name: name || file.name, path: j.path }); renderAttach(); Drafts.stash();
   }
   $('#btn-photo').onclick = () => $('#file-in').click();
   $('#btn-file').onclick = () => $('#file-any').click();
@@ -642,12 +659,13 @@
   // ---------- 보내기: 세션이 있으면 그 세션으로, 없으면 고른 폴더·조합으로 새 세션 ----------
   const ta = $('#composer-text');
   ta.addEventListener('input', autoGrow);
+  Drafts.init({ textarea: ta, files: attachments, profile: () => Profile.me()?.id || '', onLoad: () => { autoGrow(); renderAttach(); try { History.reset(); } catch {} } });
   function autoGrow() { ta.style.height = 'auto'; ta.style.height = Math.min(190, ta.scrollHeight) + 'px'; }
   async function submit() {
     let typed = ta.value.replace(/\r\n/g, '\n').trim();
     let text = withAttachments(typed); if (!text.trim()) return;
     const btn = $('#btn-send'); if (btn.disabled) return;
-    const s = cur();
+    const s = cur(), draftKey = Drafts.key(); // 보내는 사이 다른 대화로 옮겨도 그 대화의 글을 지우지 않게
     // 공유 계정 내 몫(P18 — 사용자 결정: 계정 사용률 ÷ 인원, 넘으면 보내기 전 확인 · 막지 않음)
     const ms = LocalUse.status(s?.agent || currentSel().agent);
     if (ms.over && !(await Dialog.confirm('', { title: '내 몫을 넘었어요', html: `<p>이 계정을 <b>${LocalUse.people()}명</b>이 나눠 쓰고 있어요. 한 사람 몫은 한도의 ${LocalUse.P(ms.quota)}인데, 이 PC 는 주간 <b>${LocalUse.P(ms.s.mineWeek)}</b> · 5시간 <b>${LocalUse.P(ms.s.mine5h)}</b>를 썼어요.</p><p>더 쓰면 다른 선생님들이 쓸 양이 줄어듭니다. 그래도 보낼까요?</p>`, okLabel: '그래도 보내기' }))) return;
@@ -671,10 +689,11 @@
         if (!folder) { FolderPicker.show(); return; }
         const c = currentSel();
         const rec = await api('POST', '/api/sessions', { cwd: folder.path, agent: c.agent, model: c.model, expectModel: expectOf(c), effort: c.effort, permission: c.permission, approval: c.approval, sandbox: c.sandbox, mode: c.mode, prompt: text });
+        Drafts.sent(draftKey);
         select(rec.id);
         Transcript.prime(text); // 기록파일이 생기기 전에도 요청문 + "세션 여는 중"을 바로 보여 준다(멈춘 것처럼 보이지 않게)
       }
-      ta.value = ''; autoGrow(); attachments.length = 0; renderAttach();
+      Drafts.sent(draftKey); autoGrow();
       setTimeout(() => LocalUse.refresh(true), 4000);
     } catch (e) { Dialog.alert(e.message); }
     finally { btn.disabled = false; btn.classList.remove('busy'); }
@@ -925,6 +944,8 @@
     if (Dialog.ownsEscape()) return;                   // 확인 창을 닫는 Esc 는 그 창의 것(작업 중단으로 새지 않게, P18 2026-11-24)
     if (Menu.close()) return;                          // ⋯ · 첨부 작은 메뉴
     if (Templates.close() || ChatExport.close()) return; // 서식함 · 내보내기 작은 창
+    if (Palette.close()) return;                       // 빠른 찾기(Ctrl+K)
+    if (Compare.isOpen()) { Compare.close(); return; } // 두 AI 견주기 = 닫기만(대화는 계속)
     if (Search.close()) return;                        // 지난 대화 검색 = 닫기만
     if (DocView.escape()) return;                      // 슬라이드 전체 화면 = Esc 로 닫기만(작업 중단 아님, P18 2026-11-24)
     if (RowMenu.close()) return;                       // 줄 메뉴(⋯)가 떠 있으면 Esc = 메뉴만 닫기(P18 2026-11-19)
@@ -954,7 +975,7 @@
   }, 0));
 
   // ---------- 꾸미기 설정 + 사용량 배터리 (app/settings.js) ----------
-  Settings.init({ sessionCount: () => sessions.length, onShow: () => closeDrawer() }); // 서랍은 한 번에 하나 — 설정을 열면 대시보드·모듈 서랍은 닫는다
+  Settings.init({ liveCount: () => liveSessions().length, sessionCount: () => sessions.length, onShow: () => closeDrawer() }); // 서랍은 한 번에 하나 — 설정을 열면 대시보드·모듈 서랍은 닫는다
   // ---------- 작업 완료 알림(app/notify.js, 2026-09-11): 데몬 status(done) → 오른쪽 아래 작은 알림(+창이 뒤면 OS 알림). 누르면 그 세션으로. ----------
   MemGauge.init({ notify: (n) => Notify.push(n), pick: (id) => { if (sessions.some(s => s.id === id)) select(id); } }); // 메모리 계기판(v2.78)
   Notify.init({ onPick: (id) => { if (String(id).startsWith('mod:')) { openModule(String(id).split(':')[1]); return; } if (sessions.some(s => s.id === id)) select(id); }, current: () => current, enabled: () => Settings.get().notifyDone !== false, osEnabled: () => Settings.get().notifyOs !== false });
@@ -980,6 +1001,41 @@
     if (id === current) { if (i != null) Transcript.reveal(i); return; }
     revealTo = i != null ? { id, i } : null; select(id);
   } });
+  document.addEventListener('iris:dash', () => toggleDash(true));
+  // 두 AI 견주기 · 빠른 찾기 · 새로운 점(P18 2026-11-25 4차)
+  const effortFor = (agent, model) => { const a = AGENTS[agent]; if (!a) return ''; const list = a.models.find((m) => m.id === model)?.efforts || a.efforts || []; const want = sel.effort[agent]; return list.includes(want) ? want : list.includes(a.default?.effort) ? a.default.effort : list[0] || ''; };
+  Compare.init({ agents: () => AGENTS, off: agentOff, folder: () => (cur() ? { path: cur().cwd, name: shortPath(cur().cwd) } : folder), session: (id) => sessions.find((x) => x.id === id), headers: () => Profile.headers(), api, effort: effortFor,
+    pick: (id) => { if (sessions.some((x) => x.id === id)) select(id); },
+    guard: async (text, agents) => { // 보내기 전 확인은 보통 보내기와 같게(몫 넘음 · 개인정보)
+      const over = [...new Set(agents)].filter((a) => LocalUse.status(a).over);
+      if (over.length && !(await Dialog.confirm(`${over.map((a) => AGENT_NAME[a] || a).join('·')} 계정은 내 몫을 넘었어요. 두 AI에 함께 물으면 더 많이 씁니다. 그래도 보낼까요?`, { okLabel: '그래도 보내기' }))) return null;
+      if (Settings.get().privacyCheck !== false && agents.some((a) => a !== 'local')) { const safe = await PrivacyCheck.checkAll(text, []); return safe == null ? null : safe.text; }
+      return text;
+    } });
+  $('#btn-compare').onclick = () => Compare.open(ta.value.trim());
+  Palette.init({ can: () => !Dialog.isOpen() && !Tutorial.isOpen(), sessions: () => sessions.map((x) => ({ id: x.id, title: x.title, folder: shortPath(x.cwd), agent: AGENT_KO[x.agent] || x.agent })),
+    pickSession: (id) => { if (Settings.isOpen()) Settings.hide(); closeDrawer(); setMode('chat'); if (id !== current) select(id); },
+    pickFolder: (f) => { if (Settings.isOpen()) Settings.hide(); if (current) { Drafts.carry(null); current = null; setupMode = 'new'; Canvas.onSession(null); send({ type: 'detach' }); Transcript.clear(); SubPanel.onSession(null); } folder = { path: f.path, rel: f.rel, name: f.name }; render(); ta.focus(); },
+    openPane: (p) => Settings.show(p), openTemplate: (i) => Templates.openAt(i),
+    actions: () => [
+      { name: '새 대화', key: 'Ctrl+N', words: '새 세션 요청', run: () => { goHome(); FolderPicker.show(); } },
+      { name: '지난 대화 검색', key: 'Ctrl+Shift+F', words: '찾기 기록', run: () => Search.open() },
+      { name: '두 AI 견주기', words: '비교 나란히 클로드 코덱스', run: () => Compare.open(ta.value.trim()) },
+      { name: Canvas.isOpen() ? '캔버스 닫기' : '캔버스 열기', key: 'Ctrl+Shift+K', words: '미리보기 문서 파일', when: () => !!cur(), run: () => Canvas.show(!Canvas.isOpen(), { user: true }) },
+      { name: '대화 내보내기', words: '한글 워드 저장 파일', when: () => !!cur(), run: () => $('#btn-export').click() },
+      { name: '자주 쓰는 요청', words: '서식함', run: () => Templates.open() },
+      { name: grouped() ? '작업목록 한 줄로' : '작업목록 폴더별로 묶기', words: '정렬 그룹', run: () => { Settings.setRailGroup(grouped() ? '' : 'folder'); render(); } },
+      { name: '작업목록 접기/펴기', key: 'Ctrl+B', words: '사이드바', run: () => $('#btn-rail').click() },
+      { name: '끝난 대화 지우기', words: '정리 청소', when: () => endedSessions().length > 0, run: cleanEnded },
+      { name: '대시보드', key: 'Ctrl+D', words: '사용량 한도 계정', when: () => dashEnabled, run: () => toggleDash(true) },
+      { name: 'IRIS 건강 점검', words: '진단 고장 안 됨 느림 로그인 인터넷', run: () => { Settings.show('about'); Settings.healthCheck(); } },
+      { name: '새 판 확인', words: '업데이트 버전', run: () => { Settings.show('about'); Settings.checkUpdate(); } },
+      { name: '새로운 점', words: '업데이트 바뀐 것', run: () => WhatsNew.show() },
+      { name: '사용 설명서', words: '도움말 매뉴얼', run: () => document.dispatchEvent(new CustomEvent('iris:manual')) },
+      { name: '튜토리얼 다시 보기', words: '처음 배우기', run: () => Tutorial.open({ replay: true }) },
+      { name: '글자 크게', key: 'Ctrl++', words: '확대', run: () => Settings.fontStep(10) }, { name: '글자 작게', key: 'Ctrl+-', words: '축소', run: () => Settings.fontStep(-10) },
+    ] });
+  WhatsNew.init({ go: (g) => { if (g === 'palette') Palette.open(); else if (g === 'compare') Compare.open(); else if (g === 'health') { Settings.show('about'); Settings.healthCheck(); } else Settings.show(g); } });
   Canvas.init({ composer: $('#composer-text') }); // 캔버스(P18) — AI 가 만드는 파일을 대화 옆에서 실시간으로
   // 개인 공간(P18): 잠긴 세션은 목록에서 빼고 개수만 칩에. 공간이 바뀌면 통로에 새 열쇠를 알리고, 지금 보던 세션이 남의 것이 되면 홈으로.
   function visibleOnly(list) { const all = Array.isArray(list) ? list : []; const vis = all.filter((s) => !s.locked); try { Profile.setLockedCount(all.length - vis.length); } catch {} return vis; }

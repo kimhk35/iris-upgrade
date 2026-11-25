@@ -1,6 +1,6 @@
 {
   "name": "iris-face",
-  "version": "2.102.0",
+  "version": "2.103.0",
   "private": true,
   "description": "IRIS-Face: multi-session desk for Claude Code / Codex (beta)",
   "author": "Sejun Ham (함세준)",
@@ -8,6 +8,7 @@
   "license": "MIT",
   "iris": {
     "since": "2026-09-08",
+    "release": "2.1.5",
     "motto": "해결은 에이전트가, 정의는 우리가."
   },
   "type": "module",
@@ -61,6 +62,7 @@
     "verify:security": "node scripts/check-security.mjs",
     "verify:canvas": "node scripts/check-canvas.mjs",
     "verify:round3": "node scripts/check-round3.mjs",
+    "verify:round4": "node scripts/check-round4.mjs",
     "verify:docplus": "node scripts/check-docplus.mjs",
     "verify:privacy": "node scripts/check-privacy.mjs",
     "verify:doc2pdf": "node scripts/check-doc2pdf.mjs",
