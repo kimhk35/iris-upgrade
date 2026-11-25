@@ -341,7 +341,7 @@ let planFile = null;
 {
   writeReceipt(receipt);      // 구조판 1.2.0 으로 되돌림 → 세 부품 모두 새 판
   nowMs += 1000;
-  const pk = mkUpdater();
+  const pk = mkUpdater({ stateDir: fs.mkdtempSync(path.join(tmp, 'st-pk-')) });
   await pk.check();
   const r = await pk.apply();
   const dir = path.join(root, '_agent', 'shared', 'downloads', `update-${stamp(nowMs)}`);
@@ -417,6 +417,62 @@ let planFile = null;
   const n = sweeper.sweep();
   ok(n >= 1 && !fs.existsSync(old) && fs.existsSync(keepMine), `치우기: 7일 지난 update-* 폴더만 지운다(${n}개, 우리 이름이 아닌 폴더는 그대로)`);
   ok(fs.existsSync(later.info().plan.dir), '치우기: 적용을 기다리는 plan 폴더는 남긴다');
+}
+
+// ---- 14ⓑ) 작은 업데이트 · 뒤에서 받아 두기(P18 2026-11-25) ----
+{
+  const { parseSmall, costWord } = await import('../daemon/updatesmall.mjs');
+  const sroot = path.join(tmp, 'BETA'), sface = path.join(sroot, '_agent', 'shared', 'tools', 'face');
+  for (const d of [sface, path.join(sroot, '_agent', 'setup')]) fs.mkdirSync(d, { recursive: true });
+  const pkgJson = (version, release) => JSON.stringify({ name: 'iris-face', version, iris: { release } });
+  const setInstalled = (base, faceV, release) => { fs.writeFileSync(path.join(sroot, '_agent', 'setup', 'package-receipt.json'), JSON.stringify({ schema: 2, package: { version: base }, installed: { face: { version: faceV } } })); fs.writeFileSync(path.join(sface, 'package.json'), pkgJson(faceV, release)); };
+  const mkFace = (version, release) => { const files = [{ name: 'package.json', data: Buffer.from(pkgJson(version, release)) }, { name: 'daemon/server.mjs', data: Buffer.from('// s') }]; const text = JSON.stringify(buildManifest(files)); return zipWrite([...files, { name: 'manifest.json', data: Buffer.from(text) }, { name: 'manifest.sig', data: Buffer.from(signManifest(text, KP.privatePem)) }]); };
+  const REL = 'https://github.com/kimhk35/iris-upgrade/releases/download/iris-installer--v2.1.7/';
+  let faceZip = mkFace('2.104.0', '2.1.7'), sigKey = KP.privatePem, got = [];
+  const small = { schema: 1, release: '2.1.7', face: { version: '2.104.0', asset: 'IRIS-Face_v2.104.0.zip', sha256: sha256(faceZip), from: '2.1.5' } };
+  const bigZip = zipWrite([{ name: 'IRIS-설치.cmd', data: Buffer.from('x') }]);
+  const sha = () => `${sha256(bigZip)}  IRIS-Setup_v2.1.7_2026-12-01.zip\n`;
+  const body = (b) => ({ status: 200, ok: true, headers: { get: () => null }, json: async () => JSON.parse(b.toString()), text: async () => b.toString(), arrayBuffer: async () => b });
+  const none = { status: 404, ok: false, headers: { get: () => null } };
+  const net = async (url) => {
+    url = String(url); got.push(url);
+    if (url.includes('api.github.com')) return url.includes('iris-upgrade') ? body(Buffer.from(JSON.stringify({ tag_name: 'iris-installer--v2.1.7', body: '노트', assets: ['IRIS-Setup_v2.1.7_2026-12-01.zip', 'IRIS-Setup_v2.1.7_2026-12-01.zip.sha256', 'IRIS-Setup_v2.1.7_2026-12-01.zip.sha256.sig', 'update.json', 'update.json.sig', 'IRIS-Face_v2.104.0.zip'].map((name) => ({ name, size: 10, browser_download_url: REL + name })) }))) : none;
+    const n = url.split('/').pop(); const T = JSON.stringify(small);
+    if (n === 'update.json') return body(Buffer.from(T)); if (n === 'update.json.sig') return body(Buffer.from(signManifest(T, sigKey)));
+    if (n === 'IRIS-Face_v2.104.0.zip') return body(faceZip); if (n.endsWith('.sha256')) return body(Buffer.from(sha())); if (n.endsWith('.sha256.sig')) return body(Buffer.from(signManifest(sha(), KP.privatePem))); if (n.endsWith('.zip')) return body(bigZip);
+    return none;
+  };
+  let cost = 'free'; const said = [];
+  const mk = () => new Updater({ root: sroot, faceRoot: sface, stateDir: fs.mkdtempSync(path.join(tmp, 'st-sm-')), modulesDir: path.join(tmp, 'nomods'), keys: KEYS, fetchImpl: net, now: () => (nowMs += 1000), log: () => {}, broadcast: (o) => said.push(o), netCost: async () => cost });
+  setInstalled('2.1.5', '2.103.0', '2.1.5');
+  let u = mk(); await u.check();
+  ok(u.applyParts().join() === 'face' && u.headline().version === '2.1.7' && u.headline().small === true, '작은 업데이트: 구조판 대신 창만 · 보이는 판은 2.1.7');
+  got = []; const r = await u.autoFetch();
+  ok(r === 'fetched' && got.some((x) => x.endsWith('IRIS-Face_v2.104.0.zip')) && !got.some((x) => /Setup.*zip$/.test(x)), '뒤에서 받기: 창 zip 만 받고 598MB 는 받지 않음');
+  ok(u.state.plan.items[0].kind === 'face' && u.planFresh() && said.some((b) => b.phase === 'ready' && b.auto) && said.some((b) => b.phase === 'auto-start' && b.version === '2.1.7'), '뒤에서 받기: 받아 두고 알림만(적용하지 않음)');
+  ok(await u.autoFetch() === 'ready' && (await u.apply()).planned.length === 1, '뒤에서 받기: 다시 켜도 다시 받지 않고 묻기만 · 단추를 눌러도 그대로 씀');
+  setInstalled('2.1.5', '2.104.0', '2.1.7'); // 적용된 뒤
+  ok(u.newParts().length === 0 && u.info().installed.package === '2.1.7' && u.headline() === null, '적용 뒤: 구조판도 최신으로 보이고 다시 묻지 않음');
+  setInstalled('2.1.4', '2.102.0', undefined); u = mk(); await u.check();
+  ok(u.applyParts().join() === 'package', '구조판이 from 보다 옛 판이면 전체 설치 파일');
+  ok(await u.autoFetch() === 'fetched' && fs.existsSync(path.join(u.state.plan.dir, 'package', 'IRIS-설치.cmd')), '뒤에서 받기: 구조판도 받아 별 프로세스로 풂');
+  fs.rmSync(u.state.plan.items[0].dir, { recursive: true });
+  ok(u.planFresh() === false && /사라졌/.test(u.applyNow().reason) && u.state.plan === null, '받아 둔 폴더가 사라지면 다시 받게 함');
+  setInstalled('2.1.5', '2.103.0', '2.1.5');
+  sigKey = OTHER.privatePem; u = mk(); await u.check();
+  ok(!u.state.latest.face && u.applyParts().join() === 'package', '작은 업데이트: update.json 서명이 다르면 쓰지 않음(구조판으로)');
+  sigKey = KP.privatePem; faceZip = mkFace('2.104.0', '2.1.6'); small.face.sha256 = sha256(faceZip); u = mk(); await u.check();
+  ok(await u.autoFetch() === 'error' && /판이 맞지/.test(u.state.lastResult.reason) && u.state.autoTried.fails === 1, '작은 업데이트: 다른 판의 zip 은 거절');
+  await u.autoFetch(); await u.autoFetch(); got = [];
+  ok(await u.autoFetch() === 'failed' && got.length === 0, '세 번 실패한 판은 저절로 다시 받지 않음');
+  setInstalled('2.1.4', '2.102.0', undefined); cost = 'metered'; u = mk(); await u.check(); u.state.latest.package.size = 598e6; u.freeBytes = () => 1e12;
+  ok(await u.autoFetch() === 'metered' && u.info().autoSkip === 'metered', '데이터 요금이 드는 연결에서는 큰 판을 저절로 받지 않음');
+  cost = 'free'; u.freeBytes = () => 1e9; ok(await u.autoFetch() === 'disk', '저장 공간이 모자라면 받지 않음');
+  u.setAutoDownload(false); ok(await u.autoFetch() === 'off' && u.info().autoDownload === false, '끄면 저절로 받지 않음');
+  ok(costWord('Fixed False False') === 'metered' && costWord('Unrestricted False False') === 'free' && costWord('Unrestricted True False') === 'metered' && costWord('') === 'unknown', '연결 요금 낱말');
+  let threw = 0;
+  for (const bad of [{ ...small, release: '2.1.8' }, { ...small, schema: 2 }, { ...small, face: { ...small.face, asset: '../x.zip' } }, { ...small, face: { ...small.face, sha256: 'x' } }]) { try { parseSmall(JSON.stringify(bad), { release: '2.1.7' }); } catch { threw++; } }
+  ok(threw === 4, 'update.json 모양이 다르면 거절');
 }
 
 // ---- 15) 화면 코드가 규칙을 지키는지(이모지 0 · 네이티브 alert 금지 · 설정 행 모양) ----

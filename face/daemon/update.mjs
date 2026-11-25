@@ -4,7 +4,9 @@
 //   · 메신저  = 이 자리에서 모듈로 설치(세션 무관)
 //   · IRIS 창·구조판 = 받은 폴더에 풀고 plan.json 을 써서 바깥 적용기(_agent\shared\tools\updater\apply.mjs)에 넘긴다.
 // **데몬은 자기 파일을 절대 바꾸지 않는다** — 폴더 교체는 데몬이 끝난 뒤 적용기가 한다(설계 9절).
-// 바깥 연결은 두 가지뿐: enabled 일 때 하루 1회 확인, 사용자가 누른 내려받기(모듈 계약 v1 5절의 두 번째 예외).
+// 바깥 연결은 두 가지뿐: enabled 일 때 켜자마자·하루 1회 확인, 내려받기(사용자가 눌렀거나 autoDownload 가 켜져 있을 때 — P18 2026-11-25 사용자 선택
+// 「받아 두고 묻기」: 뒤에서 받아 검증까지만 하고 **적용은 반드시 묻는다**. 데이터 요금이 드는 연결·자리 부족이면 저절로 받지 않는다).
+// 작은 업데이트(P18 2026-11-25): 릴리스에 서명된 update.json 이 있고 설치된 구조판이 그 from 이상이면 598MB 구조판 대신 IRIS 창 부품 zip 만 받는다.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -15,6 +17,7 @@ import { verifyManifest, OFFICIAL_PUBLIC_KEYS } from './modsign.mjs';
 import { checkPaths, checkManifest } from './modinstall.mjs';
 import { ALLOWED_HOSTS, loadCatalog, CATALOG_FILE, mirrorUrl, fastMirror } from './catalog.mjs';
 import { soulRoot } from './paths.mjs';
+import { parseSmall, netCost } from './updatesmall.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FACE_ROOT = path.resolve(HERE, '..');
@@ -36,14 +39,16 @@ export const PART_SOURCE = {
 export const PART_LIMITS = {
   face: { maxBytes: 64 * 1024 * 1024, zip: { maxEntryBytes: 32 * 1024 * 1024, maxTotalBytes: 128 * 1024 * 1024, maxEntries: 20000 } },
   messenger: { maxBytes: 50 * 1024 * 1024, zip: {} },
-  package: { maxBytes: 600 * 1024 * 1024, zip: { maxEntryBytes: 512 * 1024 * 1024, maxTotalBytes: 2 * 1024 * 1024 * 1024, maxEntries: 60000 } },
+  package: { maxBytes: 1200 * 1024 * 1024, zip: { maxEntryBytes: 512 * 1024 * 1024, maxTotalBytes: 2 * 1024 * 1024 * 1024, maxEntries: 60000 } },
 };
 export const PART_LABEL = { face: 'IRIS 창', messenger: '메신저', package: '패키지' };
 const REDIRECTS = [301, 302, 303, 307, 308];
 const MAX_HOPS = 5;
 const MAX_NOTES = 4000;
-const FIRST_CHECK_MS = 30 * 1000;         // 데몬 시작 30초 뒤 1회
+const FIRST_CHECK_MS = 4 * 1000;          // 켜자마자(데몬 시작 4초 뒤) 1회
+const RETRY_CHECK_MS = 2 * 60 * 1000;     // 켤 때 인터넷이 아직이면 2분 뒤 다시(3번까지)
 const EVERY_MS = 24 * 60 * 60 * 1000;     // 그 뒤 24시간마다
+const SMALL_BYTES = 60e6;                 // 이보다 작으면 데이터 요금이 드는 연결에서도 받는다
 const RECHECK_MS = 5 * 60 * 1000;         // 적용 직전 확인 결과가 이보다 오래되면 다시 확인(설계 3절 1)
 const SWEEP_MS = 7 * 24 * 60 * 60 * 1000; // 다 쓴 내려받기 폴더는 7일 뒤 치운다
 export const DEV_REASON = '개발 폴더에서 실행 중 — git pull로 갱신';
@@ -96,8 +101,11 @@ export function readInstalled({ root, mode, modulesDir, faceRoot = FACE_ROOT, re
     || (mode === 'dev' ? readJson(path.join(faceRoot, 'package.json'))?.version : null)
     || null;
   const messenger = readJson(path.join(modulesDir, MESSENGER_MODULE, 'module.json'))?.version || null;
-  const pkg = receipt?.package?.version || null;
-  return { face: face || null, messenger: messenger ? String(messenger) : null, package: pkg ? String(pkg) : null };
+  // 구조판 = 영수증의 판. 창만 바뀐 판(작은 업데이트)을 받았으면 창 package.json 의 iris.release 가 더 높다 → 보이는 판은 그것.
+  const base = receipt?.package?.version ? String(receipt.package.version) : null;
+  const release = base ? readJson(path.join(root, '_agent', 'shared', 'tools', 'face', 'package.json'))?.iris?.release : null;
+  const pkg = release && cmpSemver(release, base) > 0 ? String(release) : base;
+  return { face: face || null, messenger: messenger ? String(messenger) : null, package: pkg, base };
 }
 
 /** IRIS 창 zip: 모듈 zip 과 같은 규칙(경로 탈출·중복·매니페스트 일치) + 서명 필수. module.json 은 요구하지 않는다. */
@@ -163,6 +171,7 @@ export function extractTo(buf, entries, dest) {
 
 export class Updater {
   constructor(opts = {}) {
+    this.opts = opts;
     this.stateDir = opts.stateDir || path.join(FACE_ROOT, 'state');
     this.faceRoot = opts.faceRoot || FACE_ROOT;
     this.modulesDir = opts.modulesDir || path.join(this.faceRoot, 'modules');
@@ -191,6 +200,7 @@ export class Updater {
   receipt() { return readJson(path.join(this.root, '_agent', 'setup', 'package-receipt.json')); }
   get mode() { return this.modeOverride || detectMode({ root: this.root, faceRoot: this.faceRoot, receipt: this.receipt() }); }
   get enabled() { return this.state.enabled !== false; }
+  get autoDownload() { return this.state.autoDownload !== false; }
   installed() { return readInstalled({ root: this.root, mode: this.mode, modulesDir: this.modulesDir, faceRoot: this.faceRoot, receipt: this.receipt() }); }
 
   /** 부품별 릴리스 주소·첨부 규칙. messenger 는 카탈로그에서(없으면 null = 확인하지 않음). */
@@ -199,10 +209,12 @@ export class Updater {
     return { face: this.partSource.face, messenger: cat ? { api: cat.release.api, asset: cat.release.asset } : null, package: this.partSource.package };
   }
 
+  /** 작은 업데이트로 갈 수 있나: 서명된 update.json 이 있고 설치된 **구조판**(영수증)이 그 from 이상. */
+  get smallOk() { const f = this.state.latest?.face; return !!(f?.small && cmpSemver(this.installed().base, f.from) >= 0 && this.installed().base); }
   /** 새 판이 있는 부품(화면 표시용). 구조판·IRIS 창 둘 다 새 판이면 표시는 둘 다 한다. */
   newParts() {
     const ins = this.installed(), latest = this.state.latest || {};
-    return PART_NAMES.filter(n => isNewer(latest[n]?.version, ins[n]));
+    return PART_NAMES.filter(n => isNewer(latest[n]?.version, ins[n]) && !(n === 'face' && latest.face?.small && !this.smallOk));
   }
   /** 1.x 영혼인데 구조판 최신 판이 2.x — 자동 적용 대신 "새로 설치" 안내만(Task 21). */
   get reinstall() { return this.selfReinstall || needsReinstall({ latestPackageVersion: this.state.latest?.package?.version, receipt: this.receipt() }); }
@@ -219,6 +231,7 @@ export class Updater {
     const nw = new Set(this.newParts());
     // 새로 설치가 필요한 판 차이면 구조판은 아예 빼고 IRIS 창·메신저만 간다(창을 빼는 규칙도 이때는 쓰지 않는다).
     if (this.reinstall) nw.delete('package');
+    else if (nw.has('package') && nw.has('face') && this.smallOk) nw.delete('package'); // 작은 업데이트: 창만
     else if (nw.has('package')) nw.delete('face');
     return APPLY_ORDER.filter(n => nw.has(n));
   }
@@ -226,13 +239,14 @@ export class Updater {
   headline() {
     const re = this.reinstall;
     const nw = this.newParts().filter(n => !(re && n === 'package'));
+    if (nw.includes('package') && this.smallOk) return { part: 'package', version: this.state.latest.package.version, more: nw.length - 2, small: true }; // 사용자에게는 「2.1.6」 하나로
     const n = nw.includes('face') ? 'face' : nw[0];
     return n ? { part: n, version: this.state.latest?.[n]?.version || null, more: nw.length - 1 } : null;
   }
 
   info() {
     return {
-      mode: this.mode, enabled: this.enabled, lastCheck: this.state.lastCheck || null, checkError: this.state.checkError || null,
+      mode: this.mode, enabled: this.enabled, autoDownload: this.autoDownload, autoSkip: this.state.autoSkip || null, lastCheck: this.state.lastCheck || null, checkError: this.state.checkError || null,
       installed: this.installed(), latest: this.state.latest || { face: null, messenger: null, package: null },
       available: this.newParts(), applyParts: this.applyParts(), headline: this.headline(),
       reinstall: this.reinstallInfo(),
@@ -240,6 +254,8 @@ export class Updater {
     };
   }
   setEnabled(on) { this.state.enabled = !!on; this.persist(); this.log(`update: daily check ${this.state.enabled ? 'on' : 'off'}`); return this.info(); }
+
+  setAutoDownload(on) { this.state.autoDownload = !!on; if (!on) this.state.autoSkip = null; this.persist(); this.log(`update: auto download ${this.state.autoDownload ? 'on' : 'off'}`); return this.info(); }
 
   // ---- 확인(하루 1회 + 즉시) ----
   async fetchLatest(src, name = null) {
@@ -276,7 +292,17 @@ export class Updater {
       url: String(zip.browser_download_url), size: Number(zip.size) || 0,
       sha256Url: byName(`${zip.name}.sha256`), sigUrl: byName(`${zip.name}.sha256.sig`),   // 구조판은 .sha256 텍스트에 대한 서명 첨부를 함께 올린다
       publishedAt: rel?.published_at || null, notes: String(rel?.body || '').slice(0, MAX_NOTES),
+      ...(name === 'package' ? { small: await this.fetchSmall(rel, byName).catch((e) => { this.log(`update: update.json ignored (${String(e.message).slice(0, 80)})`); return null; }) } : {}),
     };
+  }
+  /** 같은 릴리스의 update.json(서명 필수) → 작은 업데이트 정보. 없거나 서명이 다르면 null(구조판으로 간다). */
+  async fetchSmall(rel, byName) {
+    const url = byName('update.json'), sigUrl = byName('update.json.sig'); if (!url || !sigUrl) return null;
+    const text = await this.text(url); const v = verifyManifest(text, await this.text(sigUrl), this.keys);
+    if (!v.ok || v.revoked) throw new Error('signature');
+    const s = parseSmall(text, { release: versionFromTag(rel?.tag_name) });
+    const zip = (rel.assets || []).find((a) => a?.name === s.asset && typeof a?.browser_download_url === 'string'); if (!zip) throw new Error('face zip missing');
+    return { ...s, url: String(zip.browser_download_url), size: Number(zip.size) || 0 };
   }
   async check() {
     const src = this.sources(), latest = { ...(this.state.latest || {}) }, errors = [];
@@ -286,6 +312,8 @@ export class Updater {
       try { latest[name] = await this.fetchLatest(s, name); }
       catch (e) { errors.push(`${PART_LABEL[name]}: ${e.message}`); }
     }
+    const sm = !src.face && latest.package?.small;
+    if (sm) latest.face = { version: sm.version, tag: latest.package.tag, asset: sm.asset, url: sm.url, size: sm.size, sha256: sm.sha256, sha256Url: null, sigUrl: null, publishedAt: latest.package.publishedAt, notes: latest.package.notes, small: true, from: sm.from };
     this.state.latest = latest;
     this.state.lastCheck = new Date(this.now()).toISOString();
     this.state.checkError = errors.length ? errors.join(' · ') : null;
@@ -298,13 +326,50 @@ export class Updater {
   /** 데몬 시작 30초 뒤 1회 + 24시간마다. IRIS_FACE_UPDATE_CHECK=0 이면 아예 돌지 않는다. */
   start() {
     if (process.env.IRIS_FACE_UPDATE_CHECK === '0') { this.log('update: daily check disabled by IRIS_FACE_UPDATE_CHECK=0'); return false; }
-    const run = () => { if (!this.enabled) return; this.check().catch(e => this.log(`update check failed: ${e.message}`)); };
-    const t1 = setTimeout(run, FIRST_CHECK_MS), t2 = setInterval(run, EVERY_MS);
+    let again = 0;
+    const run = async () => {
+      if (!this.enabled) return;
+      try { await this.check(); } catch (e) { this.state.checkError = e.message; this.log(`update check failed: ${e.message}`); }
+      if (this.state.checkError && again++ < 3) { const t = setTimeout(run, RETRY_CHECK_MS); t.unref?.(); this.timers.push(t); return; }
+      try { await this.autoFetch(); } catch (e) { this.log(`update auto download failed: ${e.message}`); }
+    };
+    const t1 = setTimeout(run, FIRST_CHECK_MS), t2 = setInterval(() => { again = 0; run(); }, EVERY_MS);
     t1.unref?.(); t2.unref?.();
     this.timers.push(t1, t2);
     return true;
   }
   stop() { for (const t of this.timers) { clearTimeout(t); clearInterval(t); } this.timers = []; }
+
+  // ---- 뒤에서 받아 두기(P18 2026-11-25 「받아 두고 묻기」) ----
+  /** 받아 둔 계획이 지금 최신 판과 같은가(폴더까지 남아 있을 때만). */
+  planFresh() {
+    const p = this.state.plan; if (!p?.file || !fs.existsSync(p.file) || !Array.isArray(p.items) || !p.items.length) return false;
+    const want = new Set(this.applyParts());
+    return p.items.every((i) => want.has(i.kind) && i.version === this.state.latest?.[i.kind]?.version && fs.existsSync(i.dir));
+  }
+  dropPlan() { const d = this.state.plan?.dir; this.state.plan = null; if (d && path.resolve(d).startsWith(path.resolve(this.downloadsDir()) + path.sep)) { try { fs.rmSync(d, { recursive: true, force: true }); } catch {} } this.persist(); }
+  /** 새 판이 있으면 조용히 받아 검증까지. 적용은 하지 않는다(화면이 묻는다). 메신저는 받는 즉시 바뀌므로 저절로 받지 않는다. */
+  async autoFetch() {
+    if (this.mode !== 'package' || !this.enabled || !this.autoDownload || this.applying) return 'off';
+    const skip = (why) => { if (this.state.autoSkip !== why) { this.state.autoSkip = why; this.persist(); } if (why) this.log(`update: auto download skipped (${why})`); this.broadcast({ type: 'update', phase: 'auto', info: this.info() }); return why || 'none'; };
+    if (this.state.plan && !this.planFresh()) this.dropPlan(); // 더 새 판이 나왔거나 받은 폴더가 사라졌다
+    const parts = this.applyParts().filter((n) => n !== 'messenger');
+    if (!parts.length) return skip(null);
+    if (this.state.plan) { this.broadcast({ type: 'update', phase: 'ready', auto: true, info: this.info() }); return 'ready'; }
+    const key = parts.map((n) => `${n}@${this.state.latest[n].version}`).join(',');
+    const tried = this.state.autoTried?.key === key ? this.state.autoTried : { key, fails: 0 };
+    if (tried.fails >= 3) return skip('failed');
+    const bytes = parts.reduce((n, k) => n + (this.state.latest[k].size || 0), 0);
+    const free = this.freeBytes(); if (free != null && free < bytes * 5 + 300e6) return skip('disk'); // zip + 푼 것 + 설치 여유
+    if (bytes > SMALL_BYTES && (await this.netCost()) === 'metered') return skip('metered'); // 작은 업데이트는 그냥 받는다
+    this.broadcast({ type: 'update', phase: 'auto-start', version: this.headline()?.version, size: bytes, info: this.info() });
+    this.state.autoSkip = null;
+    const r = await this.apply({ only: parts, auto: true });
+    if (!r.ok) { this.state.autoTried = { ...tried, fails: tried.fails + 1, at: new Date(this.now()).toISOString() }; this.persist(); return 'error'; }
+    this.state.autoTried = null; this.persist(); return 'fetched';
+  }
+  freeBytes() { try { const s = fs.statfsSync(this.root); return s.bavail * s.bsize; } catch { return null; } }
+  netCost() { return (this.opts.netCost || netCost)(); }
 
   // ---- 내려받기 ----
   async follow(url, headers) {
@@ -371,17 +436,19 @@ export class Updater {
     this.applying = { part: name, index, count, received: 0, total: info.size || 0 };
     const file = path.join(dir, info.asset);
     mine.push(file);
+    let told = 0; // 진행 방송은 초당 두 번까지(598MB 를 조각마다 알리면 화면이 바쁘다)
     const dlOpts = {
       maxBytes: lim.maxBytes, expectSize: info.size,
-      onProgress: (received, total) => { this.applying = { part: name, index, count, received, total }; this.broadcast({ type: 'update', phase: 'download', part: name, received, total, index, count }); },
+      onProgress: (received, total) => { this.applying = { part: name, index, count, received, total }; const t = this.now(); if (received < total && t - told < 500) return; told = t; this.broadcast({ type: 'update', phase: 'download', part: name, received, total, index, count }); },
     };
     // 미러(2026-09-14): GitHub 첨부 서버가 막힌 네트워크에서는 같은 이름의 첨부를 R2 미러에서 받는다. 검증(sha256·서명)은 아래에서 똑같이 한다.
     let got;
     try { got = await this.downloadTo(info.url, file, dlOpts); }
     catch (e) { this.log?.(`update: ${name} github download failed (${String(e.message).slice(0, 80)}) → mirror`); try { fs.rmSync(file, { force: true }); } catch {} got = await this.downloadTo(mirrorUrl(info.asset), file, dlOpts).catch(() => { throw e; }); }
     // ⓐ 릴리스 첨부 .sha256 과 대조(해시는 받으면서 흐름 중에 셌다)
-    if (!info.sha256Url) throw new Error('.sha256 첨부가 없습니다');
-    const shaText = await this.text(info.sha256Url).catch((e) => this.text(mirrorUrl(`${info.asset}.sha256`)).catch(() => { throw e; }));
+    if (!info.sha256Url && !info.sha256) throw new Error('.sha256 첨부가 없습니다');
+    // 작은 업데이트의 지문은 서명된 update.json 안에 있다
+    const shaText = info.sha256 ? info.sha256 : await this.text(info.sha256Url).catch((e) => this.text(mirrorUrl(`${info.asset}.sha256`)).catch(() => { throw e; }));
     if (name === 'package') {
       // ⓑ 구조판: .sha256 텍스트가 zip 해시와 같고 그 텍스트가 공식 서명(.sha256.sig)돼야 한다 → zip 전체가 보호된다.
       const sigText = info.sigUrl ? await this.text(info.sigUrl).catch((e) => this.text(mirrorUrl(`${info.asset}.sha256.sig`)).catch(() => { throw e; })) : '';
@@ -390,7 +457,7 @@ export class Updater {
       this.broadcast({ type: 'update', phase: 'verify', part: name, received: got.bytes, total: got.bytes });
       // ⓓ 경로 탈출·중복은 푸는 자리에서. 수백 MB 라 파일에서 항목 하나씩 읽어 푼다(통째로 메모리에 올리지 않음).
       const out = path.join(dir, 'package'); mine.push(out);
-      extractZipFile(file, out, { limits: PART_LIMITS.package.zip });
+      await this.extract(file, out);
       return { item: { kind: 'package', dir: out, version: info.version }, version: info.version };
     }
     const want = parseSha256File(shaText);
@@ -407,6 +474,10 @@ export class Updater {
     // ⓒ IRIS 창: zip 안 manifest.json+manifest.sig 가 모든 파일을 덮으므로 그대로 둔다(모듈 zip 과 같은 규칙).
     const v = verifyFaceZip(buf, { keys: this.keys });
     if (!v.ok) throw new Error(v.reason);
+    if (info.small) { // 서명은 맞아도 다른 판의 zip 이면 쓰지 않는다
+      let pj = null; try { pj = JSON.parse(v.files.find((f) => f.name === 'package.json').data.toString('utf8')); } catch {}
+      if (pj?.version !== info.version || pj?.iris?.release !== this.state.latest?.package?.version) throw new Error('판이 맞지 않습니다');
+    }
     const out = path.join(dir, 'face'); mine.push(out);
     extractTo(buf, v.files, out);
     return { item: { kind: 'face', dir: out, version: info.version }, version: info.version };
@@ -420,14 +491,16 @@ export class Updater {
    *  실패한 부품이 받아 둔 것만 지우고, 사유를 `lastResult.items` 에 부품별로 적고, 다음 부품으로 넘어간다.
    *  받은 폴더를 통째로 지우는 것은 **아무 부품도 성공하지 못했을 때**(따라서 plan.json 도 쓰지 않았을 때)뿐이다.
    *  검증 자체는 조금도 느슨해지지 않는다 — 서명·해시가 어긋난 부품은 전과 똑같이 적용되지 않는다. */
-  async apply() {
+  async apply({ only = null, auto = false } = {}) {
     if (this.applying) return { ok: false, reason: '이미 내려받는 중입니다.' };
     if (this.mode !== 'package') return { ok: false, reason: DEV_REASON };
     const age = this.state.lastCheck ? this.now() - Date.parse(this.state.lastCheck) : Infinity;
     if (!(age >= 0 && age < RECHECK_MS)) await this.check();
-    const parts = this.applyParts();
+    const parts = this.applyParts().filter((n) => !only || only.includes(n));
+    if (!auto && this.planFresh() && parts.every((n) => n === 'messenger' || this.state.plan.items.some((i) => i.kind === n)) && parts.length === this.state.plan.items.length) return { ok: true, items: [], installed: [], planned: this.state.plan.items, plan: this.state.plan }; // 뒤에서 이미 받아 두었다
     // 구조판만 새 판인데 그것이 1.x→2.0 이면 받지 않는다 — 화면이 "새로 설치" 글과 홈페이지 링크를 대신 보인다.
     if (!parts.length) return this.reinstall ? { ok: false, reason: REINSTALL_NOTE, reinstall: this.reinstallInfo() } : { ok: false, reason: '새 판이 없습니다.' };
+    if (this.state.plan) this.dropPlan();
     const dir = path.join(this.downloadsDir(), `update-${stamp(this.now())}`);
     fs.mkdirSync(dir, { recursive: true });
     const items = [], installed = [], results = [];
@@ -466,8 +539,17 @@ export class Updater {
     // 여기서의 ok = "무언가 적용되었는가" — 하나라도 되었으면 화면은 확인 카드까지 가야 한다.
     // 부품별 성패는 lastResult.items 가, 한 줄 요약은 lastResult.reason 이 들고 있다.
     const ok = items.length > 0 || installed.length > 0;
-    this.broadcast({ type: 'update', phase: ok ? 'ready' : 'error', ...(reason ? { reason } : {}), info: this.info() });
+    this.broadcast({ type: 'update', phase: ok ? 'ready' : 'error', ...(auto ? { auto: true } : {}), ...(reason ? { reason } : {}), info: this.info() });
     return { ok, ...(reason ? { reason } : {}), items: results, installed, planned, plan: this.state.plan };
+  }
+
+  /** 구조판 풀기는 별 프로세스로 — 수백 MB 를 푸는 동안 대화가 멈추지 않게(뒤에서 받을 때). */
+  extract(file, out) {
+    return new Promise((resolve, reject) => {
+      let err = ''; const c = spawn(process.execPath, [path.join(HERE, 'updatesmall.mjs'), '--extract', file, out], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+      c.stderr.on('data', (d) => { err += d; }); c.on('error', reject);
+      c.on('close', (code) => (code === 0 ? resolve() : reject(new Error(err.trim().split('\n').pop() || `extract ${code}`))));
+    });
   }
 
   /** 동봉 Node(없으면 PATH 의 node)로 적용기를 분리 실행. 데몬은 응답 뒤 스스로 끝난다(서버가 shutdown). */
@@ -478,6 +560,7 @@ export class Updater {
     const plan = this.state.plan;
     if (!plan?.file || !fs.existsSync(plan.file)) return { ok: false, reason: '받아 둔 적용 계획이 없습니다. 먼저 내려받아 주세요.' };
     const apply = this.updaterPath();
+    if ((this.state.plan.items || []).some((i) => !fs.existsSync(i.dir))) { this.dropPlan(); return { ok: false, reason: '받아 둔 파일이 사라졌습니다. 다시 받아 주세요.' }; }
     if (!fs.existsSync(apply)) return { ok: false, reason: '적용기가 아직 설치돼 있지 않습니다(설치 패키지 v1.3.0부터).' };
     // 「나중에」 뒤 데몬이 한 번 재시작됐을 수 있다 — 적용기가 기다릴 PID·포트는 지금 이 데몬의 것으로 다시 적는다.
     try { const p = readJson(plan.file); if (p) writeJsonAtomic(plan.file, { ...p, daemonPid: process.pid, daemonPort: this.daemonPort }); }

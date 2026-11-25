@@ -509,7 +509,7 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/update/') && req.method === 'POST') {
       if (!sameOrigin(req)) { log(`403 update ${p}: origin=${String(req.headers.origin || '(none)').slice(0, 120)}`); return json(res, 403, { error: 'forbidden origin' }); }
       if (p === '/api/update/check') { try { return json(res, 200, await updater.check()); } catch (e) { log(`502 update check: ${String(e.message).slice(0, 200)}`); return json(res, 502, { error: e.message }); } }
-      if (p === '/api/update/settings') { const b = await readBody(req); return json(res, 200, updater.setEnabled(b.enabled !== false)); }
+      if (p === '/api/update/settings') { const b = await readBody(req); if (typeof b.autoDownload === 'boolean') { updater.setAutoDownload(b.autoDownload); if (b.autoDownload) updater.autoFetch().catch((e) => log(`update auto: ${e.message}`)); } return json(res, 200, 'enabled' in b || typeof b.autoDownload !== 'boolean' ? updater.setEnabled(b.enabled !== false) : updater.info()); }
       if (p === '/api/update/apply') { const r = await updater.apply(); return json(res, r.ok ? 200 : 400, { ...r, info: updater.info() }); }
       // 비밀 금고(v2.62): 보관된 복구 문구를 엔진의 화면 창으로만 보여 준다. 문구는 데몬·응답·로그를 거치지 않는다(STA PowerShell 5.1 필요).
       if (p === '/api/vault/reveal') {
