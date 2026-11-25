@@ -142,7 +142,7 @@ tr:last-child td { border-bottom: 0; }
     <li><img src="img/ch3.webp" alt=""><div><div class="n">03</div><div class="t">화면 둘러보기</div><div class="d">작업목록 · 입력창 · 머리줄</div></div></li>
     <li><img src="img/ch4.webp" alt=""><div><div class="n">04</div><div class="t">첫 대화 해 보기</div><div class="d">폴더 → AI → 요청 → 확인</div></div></li>
     <li><img src="img/ch5.webp" alt=""><div><div class="n">05</div><div class="t">자주 쓰는 기능</div><div class="d">이어 말하기 · 첨부 · 음성 · 고정·삭제</div></div></li>
-    <li><img src="img/ch6.webp" alt=""><div><div class="n">06</div><div class="t">고도화판의 새 기능</div><div class="d">Gemini · 로컬 AI · 캔버스 · 예약 · 검색</div></div></li>
+    <li><img src="img/ch6.webp" alt=""><div><div class="n">06</div><div class="t">고도화판의 새 기능</div><div class="d">Gemini · 로컬 AI · 캔버스 · 빠른 찾기 · 견주기</div></div></li>
     <li><img src="img/ch7.webp" alt=""><div><div class="n">07</div><div class="t">꾸미기</div><div class="d">테마 21종 · 중앙 애니메이션 · 인트로</div></div></li>
     <li><img src="img/ch8.webp" alt=""><div><div class="n">08</div><div class="t">여럿이 함께 쓸 때</div><div class="d">구독 나눠 쓰기 · 내 몫 · 개인 공간</div></div></li>
     <li><img src="img/ch9.webp" alt=""><div><div class="n">09</div><div class="t">문제가 생겼을 때</div><div class="d">업데이트 · 학교 망 · 자주 묻는 질문</div></div></li>
@@ -541,7 +541,7 @@ tr:last-child td { border-bottom: 0; }
     <tr><th style="width:30%">장면</th><th>흐름</th></tr>
     <tr><td><b>학습지를 보면서 다듬기</b></td><td>"학습지 만들어 줘" → 캔버스에 바로 뜸 → 「고르기」로 2번 문제를 집어 "더 쉽게" → 캔버스가 실시간으로 바뀜</td></tr>
     <tr><td><b>수식 많은 풀이 자료</b></td><td>대화 화면에서 수식으로 풀이 확인 → "한글 파일로, 수식은 한글 수식으로" → 문서 속 수식을 두 번 눌러 직접 고침</td></tr>
-    <tr><td><b>세 AI에게 같은 일</b></td><td>같은 요청을 Claude·Codex·Gemini 대화 세 개로 보냄 → 작업목록에서 오가며 결과 비교 → 가장 좋은 것을 고정</td></tr>
+    <tr><td><b>두 AI에게 같은 일</b></td><td>「견주기」로 두 AI에 함께 물음 → 답을 나란히 보고 → 마음에 드는 쪽의 「이 대화로 이어 가기」</td></tr>
     <tr><td><b>보고서 마무리 점검</b></td><td>"보고서 다 썼어" → "표절·인용 점검해 줘" → 겹치는 곳·출처 빠진 곳 목록을 보고 고치기</td></tr>
   </table>
 
@@ -572,6 +572,25 @@ tr:last-child td { border-bottom: 0; }
   <h3>⑧ 로컬 AI — 인터넷으로 나가지 않는 작은 AI(sLLM)</h3>
   <p>PC에 <b>Ollama</b>(작은 AI를 내 컴퓨터에서 돌리는 무료 프로그램)와 모델이 있으면 AI 고르기에 <b>「로컬」</b>이 켜져요. 이 대화는 <b>PC 밖으로 나가지 않고</b> 구독 사용량도 쓰지 않아요. 문장 다듬기·초안·요약처럼 글만 다루는 일에 알맞아요.</p>
   <div class="box warn"><div class="bt">작은 AI라는 점을 잊지 마세요</div>파일을 만들거나 인터넷을 볼 수 없고, 큰 AI보다 틀리거나 어색한 말을 더 자주 해요. 같은 대화를 다른 AI로 옮기면 그때부터 내용이 밖으로 나가며, 옮기기 전에 알려 줘요.</div>
+</section>
+
+<!-- 6장 이어서: 2.1.5 -->
+<section class="sheet">
+  <h3 style="margin-top:0">⑨ 2.1.5에서 더해진 것</h3>
+  <div class="two">
+    <figure class="shot" style="margin-top:4px"><img src="img/shot-palette.webp" alt="빠른 찾기"><figcaption>Ctrl+K 빠른 찾기 · 왼쪽은 폴더별로 묶은 작업목록</figcaption></figure>
+    <figure class="shot" style="margin-top:4px"><img src="img/shot-compare.webp" alt="두 AI 견주기"><figcaption>같은 질문에 대한 두 AI의 답을 나란히</figcaption></figure>
+  </div>
+  <table>
+    <tr><th style="width:27%">기능</th><th>쓰는 법</th></tr>
+    <tr><td><b>빠른 찾기</b></td><td><kbd>Ctrl</kbd>+<kbd>K</kbd>. 대화·폴더·설정·서식·하는 일을 한 칸에서 찾아요. 첫소리로도 찾아요(ㄷㅈㅇ → 디자인).</td></tr>
+    <tr><td><b>두 AI 견주기</b></td><td>첫 화면 입력창 위 <b>「견주기」</b>. 같은 질문을 두 AI에 함께 물어 나란히 봐요. 파일은 고치지 않고 글로만 답해요. <b>사용량은 두 배</b>로 써요.</td></tr>
+    <tr><td><b>쓰던 글 지키기</b></td><td>보내지 않은 글과 첨부를 대화마다 따로 기억해요. 다른 대화로 옮겨도, 껐다 켜도 남아요. 작업목록에 「쓰던 글」 표시가 붙어요.</td></tr>
+    <tr><td><b>폴더별 묶기</b></td><td><b>「작업목록 ▾」 → 폴더별로 묶기</b>. 폴더 이름을 누르면 접혀요.</td></tr>
+    <tr><td><b>캔버스 다듬기</b></td><td>엑셀로 저장한 표(csv)와 정리 글(md)이 보기 좋게 나오고, 그림·소리·영상도 보여요. 넓은 엑셀은 한 쪽 폭에 맞춰요. 파일이 바뀌어 다시 그려도 보던 자리를 지켜요. 암호가 걸린 문서는 바로 알려 줘요.</td></tr>
+    <tr><td><b>업데이트 받아 두기</b></td><td>켤 때 새 판을 확인해 뒤에서 받아 두고, <b>지금 바꿀지</b> 물어봐요. 「나중에」를 누르면 다음에 켤 때 다시 물어요. 데이터 요금이 드는 연결에서는 큰 판을 저절로 받지 않아요.</td></tr>
+    <tr><td><b>새로운 점</b></td><td>업데이트한 뒤 처음 켜면 무엇이 바뀌었는지 한 번 보여 줘요. <kbd>Ctrl</kbd>+<kbd>K</kbd> → 「새로운 점」으로 다시 봐요.</td></tr>
+  </table>
 </section>
 
 <!-- 7장 -->
@@ -688,6 +707,12 @@ tr:last-child td { border-bottom: 0; }
     <tr><td>IRIS를 완전히 끄고 싶어요</td><td>창의 <b>×</b>를 누르면 모든 대화를 정리하고 꺼져요. 대화를 살려 둔 채 숨기려면 최소화(<kbd>Ctrl</kbd>+<kbd>W</kbd>)를 쓰세요.</td></tr>
   </table>
 
+  <h3>먼저 건강 점검</h3>
+  <div class="two">
+    <figure class="shot" style="margin-top:4px"><img src="img/shot-health.webp" alt="IRIS 건강 점검"><figcaption>⚙ 설정 → 업데이트·정보 → IRIS 건강 점검</figcaption></figure>
+    <div><p>로그인·인터넷·컴퓨터 시계·저장 공간·문서 프로그램·업데이트를 한 번에 확인해, <b>고칠 것부터</b> 고치는 법과 함께 보여 줘요. 서버가 열리는지만 보고 아무것도 보내지 않아요.</p><p>설치가 멈췄을 때는 설치 화면의 <b>「진단 파일 만들기」</b>로 파일을 저장해, 도와주실 분께 직접 전해 주세요.</p></div>
+  </div>
+
   <h3>화면에 뜨는 영어 메시지 풀이</h3>
   <table>
     <tr><th style="width:32%">이런 글이 보이면</th><th>뜻</th><th style="width:30%">이렇게</th></tr>
@@ -701,7 +726,7 @@ tr:last-child td { border-bottom: 0; }
   </table>
 
   <h3>그래도 안 되면 — 알려 주세요</h3>
-  <p>IRIS 고도화판 홈페이지 <b>iris.mathmckay.kr</b>로 상황을 알려 주세요. 화면을 캡처해 함께 보내 주면 훨씬 빨리 찾을 수 있어요. ⚙ 설정 → 업데이트·정보 아래쪽의 판 번호(예: v2.102.0)도 함께 적어 주세요.</p>
+  <p>IRIS 고도화판 홈페이지 <b>iris.mathmckay.kr</b>로 상황을 알려 주세요. 화면을 캡처해 함께 보내 주면 훨씬 빨리 찾을 수 있어요. ⚙ 설정 → 업데이트·정보 아래쪽의 판 번호(예: v2.103.0)도 함께 적어 주세요.</p>
 
   <h3>지우고 싶을 때</h3>
   <p>설치 zip을 푼 폴더의 <b>IRIS-삭제.cmd</b>를 두 번 누르면, 무엇을 지우고 남길지 먼저 보여 줘요. 기본값 <b>「내 작업은 남기기」</b>를 고르면 내 폴더는 <b>C:\IRIS-보관-날짜</b>로 옮겨 두고 프로그램만 지워요.</p>
@@ -726,6 +751,7 @@ tr:last-child td { border-bottom: 0; }
     </table>
     <table>
       <tr><th colspan="2">화면</th></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>빠른 찾기</td></tr>
       <tr><td><kbd>Ctrl</kbd>+<kbd>N</kbd></td><td>새 대화(폴더 고르기)</td></tr>
       <tr><td><kbd>Ctrl</kbd>+<kbd>1</kbd>~<kbd>9</kbd></td><td>작업목록 ○번째 대화로</td></tr>
       <tr><td><kbd>Ctrl</kbd>+<kbd>B</kbd></td><td>작업목록 접기·펴기</td></tr>

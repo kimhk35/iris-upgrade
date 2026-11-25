@@ -149,7 +149,7 @@ test('loginStatus: 로그인 주소를 한 번도 못 찍고 꺼졌으면 login-
   assert.equal(st.state, 'failed');
   assert.equal(st.reason, 'login-no-start');
   assert.match(st.message, /다시 로그인/);
-  assert.match(st.message, /신고/);
+  assert.match(st.message, /진단 파일/);
   assert.doesNotMatch(String(st.message), /코드|paste|TeamClaude/i);
   fs.rmSync(root, { recursive: true, force: true });
 });

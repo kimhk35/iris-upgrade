@@ -78,6 +78,7 @@ try {
   browser = await chromium.launch({ executablePath: EXE });
   const newPage = async ({ theme, sessions = S } = {}) => {
     const p = await browser.newPage({ viewport: { width: 1440, height: 880 }, deviceScaleFactor: 2 });
+    await p.addInitScript(() => { try { localStorage.setItem('iris.release.seen', '9'); Object.defineProperty(window, '__cap', { value: 1 }); } catch {} });
     if (theme) await p.addInitScript((t) => { try { localStorage.setItem('iris.manual.theme', t); } catch {} }, theme);
     await p.routeWebSocket('**/ws', (ws) => {
       const srv = ws.connectToServer();
@@ -154,6 +155,17 @@ try {
     await p.evaluate(() => { Settings.setSharePeople(1); });
   }
 
+  // 13) 2.1.5: 빠른 찾기 + 폴더별 묶기 · 두 AI 견주기(가짜 답) · 건강 점검(가짜 결과)
+  if (!only.length || only.some((x) => ['palette', 'compare', 'health'].includes(x))) {
+    const q = await newPage(); await q.evaluate(() => Settings.setRailGroup('folder')); await open(q, '운동량 보존 학습지 만들기'); await q.keyboard.press('Control+k'); await sleep(1200); await shot(q, 'palette', []); await q.keyboard.press('Escape'); await sleep(500);
+    let n = 0; await q.route('**/api/sessions', (r) => (r.request().method() === 'POST' ? r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: ['a3', 'a2'][n++] }) }) : r.continue()));
+    const ans = { a3: '충돌 전후 **운동량의 합**이 같다는 뜻이에요.\n\n- 같은 수레 두 대: $mv = 2mv^{\\prime}$\n- 그래서 속력은 **절반**이 돼요\n\n수레가 붙어 움직이면 운동 에너지는 줄어요.', a2: '한 줄로: **밖에서 힘이 없으면 운동량의 합은 변하지 않는다.**\n\n1. 부딪히기 전 합을 구한다\n2. 부딪힌 뒤 합과 같다고 놓는다\n3. 모르는 속력을 푼다' };
+    for (const id of ['a3', 'a2']) { await q.route(`**/api/sessions/${id}/transcript*`, (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ i: 1, t: T, kind: 'user', text: '운동량 보존을 중학생에게 설명해 줘' }, { i: 2, t: T, kind: 'assistant', text: ans[id] }], meta: {} }) })); await q.route(`**/api/sessions/${id}/title`, (r) => r.fulfill({ contentType: 'application/json', body: '{}' })); }
+    await q.evaluate(() => Compare.open('운동량 보존을 중학생에게 설명해 줘')); await sleep(400); await q.locator('.cmp [data-c="ask"]').click(); await sleep(3200); await shot(q, 'compare', []); await q.evaluate(() => Compare.close());
+    await q.route('**/api/healthcheck', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ list: [{ id: 'login', label: '로그인', level: 'bad', text: '1개의 로그인이 만료됐어요.', fix: '설정 → 계정에서 「갱신」을 눌러 주세요.', go: 'account' }, { id: 'disk', label: '저장 공간', level: 'warn', text: '4.2GB 남았어요.', fix: '업데이트에는 5GB쯤 여유가 있으면 좋아요.' }, ...['인터넷', '컴퓨터 시계', 'AI 프로그램', '기록 저장', '메모리', '문서 보기', '업데이트'].map((label) => ({ id: label, label, level: 'ok', text: '괜찮아요.' }))] }) }));
+    await q.evaluate(() => { Settings.show('about'); return Settings.healthCheck(); }); await sleep(600); await q.evaluate(() => document.querySelector('#st-hc').scrollIntoView({ block: 'center' })); await sleep(300); await shot(q, 'health', []); await q.close();
+  }
+
   // 12) 튜토리얼 그림(node capture.mjs tu) — 원본 PNG 는 shots-src/tu-*.png, face/app/tutorial/*.webp 로 줄여 넣는다
   if (only.includes('tu')) {
     const pic = async (q, name, marks = []) => { await q.evaluate(clearMarks); await q.evaluate(MARK(), marks); await q.evaluate(() => { const r = document.querySelector('#st-root'); if (r) r.textContent = 'C:' + String.fromCharCode(92) + 'IRIS'; }); await sleep(250); await q.screenshot({ path: path.join(OUT, `tu-${name}.png`) }); console.log('tu', name); };
@@ -174,7 +186,8 @@ try {
     await q.evaluate(() => Settings.show('sched')); await sleep(900); await q.locator('[data-sc=new]').click(); await sleep(700);
     for (const [k, v] of [['name', '이번 주 할 일'], ['prompt', '이번 주 수업과 회의를 정리해서 할 일 목록을 만들어 줘'], ['cwd', 'C:' + String.fromCharCode(92) + 'IRIS' + String.fromCharCode(92) + 'R01-교사(Teacher)'], ['time', '08:30']]) await q.locator(`[data-f=${k}]`).fill(v);
     await q.locator('[data-day="1"]').first().click(); await sleep(300); await pic(q, 'newsafe', []);
-    await q.evaluate(() => Settings.show('privacy')); await sleep(900); await pic(q, 'newmenu', [['#st-nav .st-nav-cap:nth-of-type(1)', -6, 8]].slice(1)); await q.close();
+    await q.evaluate(() => Settings.show('privacy')); await sleep(900); await pic(q, 'newmenu', [['#st-nav .st-nav-cap:nth-of-type(1)', -6, 8]].slice(1)); await q.evaluate(() => Settings.hide());
+    await q.evaluate(() => { Settings.setRailGroup('folder'); document.dispatchEvent(new CustomEvent('iris:cfg-change')); }); await open(q, '운동량 보존 학습지 만들기'); await q.keyboard.press('Control+k'); await sleep(1500); await pic(q, 'newfind', []); await q.close();
   }
 
   // 11) 인터뷰 안내 띠 — 내 작업 폴더가 없을 때 첫 화면(가짜로 「폴더 없음」), × 누르면 사라지고 다시 안 뜸

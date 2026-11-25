@@ -24,6 +24,7 @@ window.WhatsNew = (() => {
   }
   /** hello 때마다 불러도 한 번만. updated = 방금 업데이트됨, used = 이미 쓰던 PC(대화가 있음), busy = 튜토리얼이 떠 있음. */
   function maybe({ updated = false, used = false, busy = false } = {}) {
+    if (window.__cap) return false; // 설명서 그림 찍기
     let seen = null; try { seen = localStorage.getItem(KEY); } catch { return false; }
     if (seen === RELEASE || busy) return false;
     try { localStorage.setItem(KEY, RELEASE); } catch { return false; }

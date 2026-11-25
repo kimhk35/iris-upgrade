@@ -30,7 +30,7 @@ window.Tutorial = (() => {
   const DECK = '/app/tutorial/deck';
   const CHAPTERS = [['start', '시작', 1, 2], ['agent', '에이전트', 3, 8], ['map', '지도', 9, 12], ['doors', '소환', 13, 22], ['three', '3가지', 23, 30], ['lab', '실습', 31, 37], ['end', '마무리', 38, 99]];
   const chapOf = (no) => (CHAPTERS.find(([, , a, b]) => no >= a && no <= b) || CHAPTERS.at(-1))[0];
-  let SCENES = [{ id: 'build', kind: 'build', chap: 'three' }, { id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' }, { id: 'newdoc', kind: 'newdoc', chap: 'end' }, { id: 'newsafe', kind: 'newsafe', chap: 'end' }, { id: 'newmenu', kind: 'newmenu', chap: 'end' }, { id: 'finish', kind: 'finish', chap: 'end' }];
+  let SCENES = [{ id: 'build', kind: 'build', chap: 'three' }, { id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' }, { id: 'newdoc', kind: 'newdoc', chap: 'end' }, { id: 'newsafe', kind: 'newsafe', chap: 'end' }, { id: 'newmenu', kind: 'newmenu', chap: 'end' }, { id: 'newfind', kind: 'newfind', chap: 'end' }, { id: 'finish', kind: 'finish', chap: 'end' }];
   const buildIdx = () => SCENES.findIndex(s => s.kind === 'build');
   /** 덱 쪽 목록(manifest) → 장면 줄. 덱을 못 읽으면 IRIS 장면 3개만(튜토리얼 자체는 돈다). */
   function makeScenes(man) {
@@ -39,10 +39,10 @@ window.Tutorial = (() => {
     for (const s of man.slides) {
       out.push({ id: `d${s.no}`, kind: 'deck', no: s.no, chap: chapOf(s.no), title: s.title });
       if (s.no === 26) out.push({ id: 'build', kind: 'build', chap: 'three' });
-      if (s.no === 38) out.push({ id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' }, { id: 'newdoc', kind: 'newdoc', chap: 'end' }, { id: 'newsafe', kind: 'newsafe', chap: 'end' }, { id: 'newmenu', kind: 'newmenu', chap: 'end' });
+      if (s.no === 38) out.push({ id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' }, { id: 'newdoc', kind: 'newdoc', chap: 'end' }, { id: 'newsafe', kind: 'newsafe', chap: 'end' }, { id: 'newmenu', kind: 'newmenu', chap: 'end' }, { id: 'newfind', kind: 'newfind', chap: 'end' });
     }
     if (!out.some(s => s.kind === 'build')) out.push({ id: 'build', kind: 'build', chap: 'three' });
-    if (!out.some(s => s.kind === 'usage')) out.push({ id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' }, { id: 'newdoc', kind: 'newdoc', chap: 'end' }, { id: 'newsafe', kind: 'newsafe', chap: 'end' }, { id: 'newmenu', kind: 'newmenu', chap: 'end' });
+    if (!out.some(s => s.kind === 'usage')) out.push({ id: 'usage', kind: 'usage', chap: 'end' }, { id: 'newfeat', kind: 'newfeat', chap: 'end' }, { id: 'newdoc', kind: 'newdoc', chap: 'end' }, { id: 'newsafe', kind: 'newsafe', chap: 'end' }, { id: 'newmenu', kind: 'newmenu', chap: 'end' }, { id: 'newfind', kind: 'newfind', chap: 'end' });
     out.push({ id: 'finish', kind: 'finish', chap: 'end' });
     SCENES = out;
   }
@@ -99,6 +99,9 @@ window.Tutorial = (() => {
     newmenu: { pill: '설정 열기 = <b>Ctrl+,</b>',
       text: () => head('고도화판 · 넷', '찾기 쉽게<br><span>정리된 메뉴</span>', pts([['설정 네 묶음', '화면 · 일하기 · 안전 · IRIS'], ['첨부 하나로', '클립 = 파일 · 사진 · 카메라'], ['더 보기 ⋯', '대화와 캔버스의 가끔 쓰는 일'], ['머리줄 사용량', 'AI마다 남은 양 한눈에']], 'six')),
       art: () => `<figure class="tu-pic shot" data-act="zoom" title="크게 보기"><img src="${IMG('newmenu')}" alt="IRIS 설정 화면 캡처: 오른쪽 목차가 화면, 일하기, 안전, IRIS 네 묶음으로 나뉘어 있다" decoding="async" draggable="false"></figure>` },
+    newfind: { pill: '빠른 찾기 = <b>Ctrl+K</b>',
+      text: () => head('고도화판 · 다섯', '빨리 찾고,<br><span>나란히 견주기</span>', pts([['빠른 찾기', '대화·폴더·설정을 한 칸에서'], ['두 AI 견주기', '같은 질문을 나란히'], ['쓰던 글 지키기', '대화마다 따로, 껐다 켜도'], ['폴더별 묶기', '「작업목록 ▾」에서 고르기'], ['건강 점검', '안 될 때 원인을 한 번에'], ['새 판 받아 두기', '뒤에서 받고 바꿀지 묻기']], 'six')),
+      art: () => `<figure class="tu-pic shot" data-act="zoom" title="크게 보기"><img src="${IMG('newfind')}" alt="IRIS 화면 캡처: 빠른 찾기 칸에 대화와 하는 일이 나오고, 왼쪽 작업목록은 폴더별로 묶여 있다" decoding="async" draggable="false"></figure>` },
     finish: { pill: '예시 요청이 채워지고, <b>보내기는 직접</b> 누릅니다',
       text: () => head('준비 끝', '좋은 몸을 고르고,<br><span>자리와 연장</span>을 마련하기') + finishHtml(),
       art: () => ICONS() },
