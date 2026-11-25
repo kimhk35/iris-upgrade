@@ -49,6 +49,8 @@ export function friendlyError(ext, code) {
   if (code === 'NOPY') return '문서 변환 도구(파이썬)를 찾지 못했어요. IRIS 설치 파일을 다시 실행하면 채워집니다.';
   if (code === 'NOAPP') return `이 PC에 ${app}${alsoOf(ext)}${alsoOf(ext) ? '이' : josa} 설치되어 있지 않아 미리보기를 만들 수 없어요.`;
   if (code === 'LOCKED') return '다른 프로그램이 이 파일을 쓰는 중이라 읽지 못했어요. 저장이 끝나거나 그 창을 닫은 뒤 다시 열어 주세요.';
+  if (code === 'PASSWORD') return '암호가 걸린 문서라 미리 볼 수 없어요. 「원본 열기」로 여시거나, 암호를 푼 사본을 만들어 주세요.';
+  if (code === 'EMPTY') return '아직 아무 내용이 없는 문서예요. 내용이 생기면 저절로 보여 드릴게요.';
   if (code === 'TIMEOUT') return `변환이 너무 오래 걸려 멈췄어요. ${app} 안내 창이 떠 있으면 닫고 다시 열어 주세요.`;
   return `${app}에서 이 문서를 바꾸지 못했어요. 파일이 아직 저장되는 중이거나 손상됐을 수 있어요.`;
 }
@@ -103,7 +105,9 @@ export function toPdf(src, cacheDir, log = () => {}, opts = {}) {
     const t0 = Date.now(); let code = 'NOPY', err = '';
     for (const py of candidates) {
       try { fs.rmSync(part, { force: true }); } catch {}
-      const r = await runPy(py, src, part);
+      let r = await runPy(py, src, part);
+      // 파워포인트는 하나만 떠서, 사용자가 마침 창을 열거나 닫는 순간이면 연결이 끊긴다 — 한 번만 다시(P18 2026-11-25 점검)
+      if (r.code === 1 && /^\.(pptx?|odp)$/.test(ext) && !/\[(NOAPP|LOCKED|TIMEOUT|PASSWORD|EMPTY)\]/.test(r.err)) { await new Promise((ok) => setTimeout(ok, opts.retryMs ?? 3000)); r = await runPy(py, src, part); }
       if (r.code === 0 && fs.existsSync(part) && fs.statSync(part).size > 0) {
         fs.renameSync(part, out);
         log(`doc2pdf ${ext} ${((Date.now() - t0) / 1000).toFixed(1)}s ${path.basename(src)}`);
@@ -111,7 +115,7 @@ export function toPdf(src, cacheDir, log = () => {}, opts = {}) {
       }
       err = r.err;
       if (r.code === 3 || r.code === 'ENOENT') continue; // 이 파이썬에는 모듈이 없거나 실행이 안 됨 → 다음 후보
-      code = r.code === 'TIMEOUT' ? 'TIMEOUT' : /\[(NOAPP|LOCKED|TIMEOUT)\]/.exec(r.err)?.[1] || 'FAIL';
+      code = r.code === 'TIMEOUT' ? 'TIMEOUT' : /\[(NOAPP|LOCKED|TIMEOUT|PASSWORD|EMPTY)\]/.exec(r.err)?.[1] || 'FAIL';
       break;
     }
     try { fs.rmSync(part, { force: true }); } catch {}

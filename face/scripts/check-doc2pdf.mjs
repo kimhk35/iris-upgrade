@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'iris-doc2pdf-'));
 process.env.IRIS_ROOT = tmp;
@@ -54,6 +55,21 @@ await t('실패 이유는 쉬운 한국어', async () => {
   assert.match(friendlyError('.hwpx', 'NOAPP'), /한\/글/);
   assert.match(friendlyError('.pptx', 'LOCKED'), /다른 프로그램/);
 });
+
+await t('암호 문서·빈 문서는 바로 알린다(쉬운 말)', () => { assert.match(friendlyError('.pptx', 'PASSWORD'), /암호/); assert.match(friendlyError('.xlsx', 'EMPTY'), /아무 내용/); });
+{ // 암호 문서 알아보기(프로그램을 띄우지 않고) — 파이썬이 있을 때만
+  const { pythonExe } = await import('../daemon/paths.mjs'); const { spawnSync } = await import('node:child_process');
+  const py = process.env.IRIS_DOC_PY || pythonExe();
+  if (!py) { skip++; console.log('SKIP 암호 문서 알아보기(파이썬 없음)'); }
+  else await t('암호 걸린 docx·hwp 는 알아보고, 보통 문서는 아니라고 본다', () => {
+    const ole = Buffer.from([0xd0, 0xcf, 0x11, 0xe0]); const f = (n, ...b) => { const p = path.join(tmp, n); fs.writeFileSync(p, Buffer.concat(b)); return p; };
+    const hwp = (flag) => [ole, Buffer.alloc(508), Buffer.from('HWP Document File'), Buffer.alloc(15), Buffer.from([1, 0, 1, 5]), Buffer.from([flag, 0, 0, 0])];
+    const files = [f('a1.docx', ole, Buffer.from('EncryptedPackage', 'utf16le')), f('a2.docx', Buffer.from('PK')), f('a3.hwp', ...hwp(3)), f('a4.hwp', ...hwp(1))];
+    const code = 'import sys,os,json;sys.path.insert(0,sys.argv[1]);import doc2pdf;print(json.dumps([doc2pdf.encrypted(p,os.path.splitext(p)[1]) for p in sys.argv[2:]]))';
+    const r = spawnSync(py, ['-B', '-c', code, path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'daemon'), ...files], { encoding: 'utf8', env: { ...process.env, PYTHONUTF8: '1' }, cwd: tmp });
+    assert.deepEqual(JSON.parse(r.stdout || '0'), [true, false, true, false], r.stderr);
+  });
+}
 
 // ── 쪽 그림(docpages) ──
 const pdfOf = (n) => { const p = path.join(tmp, `${n.padStart(16, '0')}-x.pptx.pdf`); fs.writeFileSync(p, '%PDF'); return p; };

@@ -24,6 +24,7 @@ import { openPages, pageFile, pageHashes, pageText, sweepCache, ID_RE } from './
 import { searchSessions } from './search.mjs';
 import { DocVersions } from './docversions.mjs';
 import { extractText } from './doctext.mjs';
+import { readText, previewHtml, depsMtime } from './canvasfile.mjs';
 import { Templates } from './templates.mjs';
 import { exportDoc } from './export.mjs';
 import { listModels, defaultModel } from './localai.mjs';
@@ -305,7 +306,8 @@ const VENDOR = {
 function serveFile(res, file, req = null) {
   if (!fs.existsSync(file)) { res.writeHead(404); return res.end('not found'); }
   // 영상(튜토리얼 덱 시연, v2.95)은 구간 요청(Range)을 받아야 재생 막대로 건너뛸 수 있다
-  const m = path.extname(file) === '.mp4' && /^bytes=(\d*)-(\d*)$/.exec(req?.headers?.range || '');
+  const ext = path.extname(file).toLowerCase(); // 「사진.JPG」「자료.PDF」처럼 대문자 확장자도 같은 것
+  const m = ext === '.mp4' && /^bytes=(\d*)-(\d*)$/.exec(req?.headers?.range || '');
   if (m) {
     const size = fs.statSync(file).size; let a = m[1] === '' ? size - Number(m[2]) : Number(m[1]); let b = m[1] !== '' && m[2] !== '' ? Number(m[2]) : size - 1;
     a = Math.max(0, a); b = Math.min(size - 1, b);
@@ -313,8 +315,8 @@ function serveFile(res, file, req = null) {
     res.writeHead(206, { 'Content-Type': 'video/mp4', 'Content-Range': `bytes ${a}-${b}/${size}`, 'Accept-Ranges': 'bytes', 'Content-Length': b - a + 1, 'Cache-Control': 'no-store' });
     return fs.createReadStream(file, { start: a, end: b }).pipe(res);
   }
-  if (path.extname(file) === '.mp4') res.setHeader('Accept-Ranges', 'bytes');
-  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+  if (ext === '.mp4') res.setHeader('Accept-Ranges', 'bytes');
+  res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': 'no-store' });
   fs.createReadStream(file).pipe(res);
 }
 const json = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
@@ -613,6 +615,7 @@ const server = http.createServer(async (req, res) => {
       // HTML·SVG 미리보기는 격리(P18): 스크립트는 돌되 이 데몬과 다른 출처(null)로 — 대화에 나온 학생 과제 HTML 같은 것이
       // IRIS 의 같은 출처 권한으로 세션을 만들거나 파일을 읽지 못하게. iframe 의 allow-same-origin 이 있어도 이 헤더가 이긴다.
       if (['.html', '.htm', '.svg'].includes(ext)) res.setHeader('Content-Security-Policy', 'sandbox allow-scripts allow-popups allow-forms allow-modals');
+      if ((ext === '.html' || ext === '.htm') && fs.statSync(file).size < 20e6) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(previewHtml(fs.readFileSync(file))); }
       return serveFile(res, file);
     }
     // ---- 캔버스(P18): 경로형 파일 주소 · 바뀜 확인 · 코드 글자 ----
@@ -625,20 +628,21 @@ const server = http.createServer(async (req, res) => {
       const ext = path.extname(file).toLowerCase();
       if (/^[A-Za-z]:\\(windows|program files|program files \(x86\)|programdata)\\/i.test(file) || /[\\/]secrets[\\/]/i.test(file) || /^\.env/i.test(path.basename(file))) { log(`403 canvas ${file}`); return json(res, 403, { error: `열 수 없는 자리입니다: ${path.basename(file)}` }); }
       let st = null; try { st = fs.statSync(file); } catch {}
-      if (p === '/api/file/stat') return json(res, 200, st && st.isFile() ? { exists: true, mtime: st.mtimeMs, size: st.size } : { exists: false });
+      if (p === '/api/file/stat') return json(res, 200, st && st.isFile() ? { exists: true, mtime: depsMtime(file, st.mtimeMs), size: st.size } : { exists: false });
       if (!st || !st.isFile()) return json(res, 404, { error: `파일이 없습니다: ${path.basename(file)}` });
       if (p === '/api/file/text') {
         if (!CANVAS_TEXT.has(ext)) return json(res, 415, { error: '글자로 볼 수 없는 파일입니다' });
-        const LIMIT = 400 * 1024; const fd = fs.openSync(file, 'r'); const buf = Buffer.alloc(Math.min(st.size, LIMIT)); fs.readSync(fd, buf, 0, buf.length, 0); fs.closeSync(fd);
-        return json(res, 200, { text: buf.toString('utf8'), truncated: st.size > LIMIT, size: st.size, mtime: st.mtimeMs });
+        return json(res, 200, { ...readText(file, 400 * 1024), mtime: st.mtimeMs });
       }
       if (!CANVAS_SERVE.has(ext)) return json(res, 415, { error: '캔버스에서 내줄 수 없는 파일 종류입니다' });
       if (['.html', '.htm', '.svg'].includes(ext)) res.setHeader('Content-Security-Policy', 'sandbox allow-scripts allow-popups allow-forms allow-modals');
-      if ((ext === '.html' || ext === '.htm') && url.searchParams.get('pick') === '1') {
-        const html = fs.readFileSync(file, 'utf8');
+      if ((ext === '.html' || ext === '.htm') && st.size < 20e6) {
+        const body = previewHtml(fs.readFileSync(file), { y: Number(url.searchParams.get('y')), tail: url.searchParams.get('pick') === '1' ? CANVAS_PICKER : '' });
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-        return res.end(/<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, `${CANVAS_PICKER}</body>`) : html + CANVAS_PICKER);
+        return res.end(body);
       }
+      // 격리된 페이지(출처 null)가 부르는 모듈 스크립트·글꼴은 CORS 허락이 있어야 실린다. 브라우저가 붙이는 sec-fetch-dest 로 「실행·글꼴용」일 때만 — 글자를 읽어 가는 fetch(dest=empty)에는 주지 않는다.
+      if (req.headers.origin === 'null' && /^(script|font|style)$/.test(String(req.headers['sec-fetch-dest'] || '')) && ['.js', '.mjs', '.css', '.woff', '.woff2', '.ttf'].includes(ext)) res.setHeader('Access-Control-Allow-Origin', 'null');
       return serveFile(res, file, req);
     }
     if (req.method === 'GET' && p === '/api/doc') {
@@ -736,7 +740,8 @@ const server = http.createServer(async (req, res) => {
       const cwd = path.resolve(url.searchParams.get('cwd') || ''); const names = url.searchParams.getAll('name').slice(0, 40);
       if (!/^[A-Za-z]:\\/.test(String(url.searchParams.get('cwd') || ''))) return json(res, 400, { error: '작업 폴더가 없습니다' });
       const blocked = (f) => /^[A-Za-z]:\\(windows|program files|program files \(x86\)|programdata)\\/i.test(f) || /[\\/]secrets[\\/]/i.test(f) || /^\.env/i.test(path.basename(f));
-      const stat = (f) => { if (blocked(f) || !(isConvertible(f) || /\.pdf$/i.test(f))) return null; try { const st = fs.statSync(f); return st.isFile() ? { path: f, mtime: st.mtimeMs } : null; } catch { return null; } };
+      const showable = (f) => isConvertible(f) || /\.(?:pdf|html?|png|jpe?g|gif|webp|svg|csv|mp4|webm|mp3|wav)$/i.test(f); // 명령으로 만든 그림·웹페이지·표·소리도(2026-11-25)
+      const stat = (f) => { if (blocked(f) || !showable(f)) return null; try { const st = fs.statSync(f); return st.isFile() ? { path: f, mtime: st.mtimeMs } : null; } catch { return null; } };
       let index = null; // 같은 이름 찾기용 — 필요할 때만 한 번 훑는다
       const byName = (n) => {
         if (!index) {
@@ -746,7 +751,7 @@ const server = http.createServer(async (req, res) => {
             let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
             for (const e of ents) {
               if (e.isDirectory()) { if (d < 4 && !/^(node_modules|\.git|\.venv|venv|__pycache__|secrets|doc-cache|_build)$/i.test(e.name)) queue.push([path.join(dir, e.name), d + 1]); }
-              else if (e.isFile() && (isConvertible(e.name) || /\.pdf$/i.test(e.name)) && !e.name.startsWith('~$')) { const k = e.name.toLowerCase(); index.set(k, [...(index.get(k) || []), path.join(dir, e.name)]); }
+              else if (e.isFile() && showable(e.name) && !e.name.startsWith('~$')) { const k = e.name.toLowerCase(); index.set(k, [...(index.get(k) || []), path.join(dir, e.name)]); }
             }
           }
         }

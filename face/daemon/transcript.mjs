@@ -381,7 +381,7 @@ export function geminiArgs(args) {
  * 문서는 「쓰기」 도구가 아니라 파이썬 명령·문서 MCP 로 만들어져 writtenFiles 로는 캔버스가 알 수 없었다.
  * 실제로 있는지·그 뒤에 바뀌었는지는 캔버스가 /api/canvas/find 로 확인한다(여기서는 이름만).
  */
-const DOC_EXT = '(?:pptx?|docx?|hwpx?|xlsx?|pdf)';
+const DOC_EXT = '(?:pptx?|docx?|hwpx?|xlsx?|pdf|html?|png|jpe?g|gif|webp|svg|csv|mp4|webm|mp3|wav)'; // 명령으로 만든 그림·웹페이지·표·소리도(2026-11-25 점검)
 const DOC_END = '(?![A-Za-z0-9_])';
 const DOC_QUOTED = new RegExp(`(["'\`])([^"'\`\\r\\n<>|*?]{1,240}?\\.${DOC_EXT})\\1`, 'gi');
 const DOC_ABS = new RegExp(`(?:[A-Za-z]:[\\\\/]|/[A-Za-z]/)[^"'\`\\r\\n<>|*?:]{1,240}?\\.${DOC_EXT}${DOC_END}`, 'gi');
@@ -389,7 +389,7 @@ const DOC_BARE = new RegExp(`[^\\s"'\`<>|*?:=,;()\\[\\]{}]{1,200}\\.${DOC_EXT}${
 export function docMentions(value, depth = 0) {
   if (value == null || depth > 4) return [];
   if (typeof value === 'object') return [...new Set(Object.values(value).slice(0, 60).flatMap((v) => docMentions(v, depth + 1)))].slice(0, 20);
-  if (typeof value !== 'string' || !/\.(?:ppt|doc|hwp|xls|pdf)/i.test(value)) return [];
+  if (typeof value !== 'string' || !/\.(?:ppt|doc|hwp|xls|pdf|htm|png|jpe?g|gif|webp|svg|csv|mp[34]|webm|wav)/i.test(value)) return [];
   const s = value.length > 200_000 ? value.slice(-200_000) : value; const out = [];
   // 겹쳐 뽑아도 된다 - 따옴표 속 명령 전체가 이름으로 잡혀도 낱말 쪽에서 진짜 이름이 나오고, 없는 이름은 찾기에서 걸러진다
   for (const [re, g] of [[DOC_QUOTED, 2], [DOC_ABS, 0], [DOC_BARE, 0]]) for (const m of s.matchAll(re)) out.push(m[g].replace(/\\\\/g, '\\').trim());

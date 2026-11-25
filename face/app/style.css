@@ -1044,6 +1044,11 @@ button.tl-pill[aria-pressed="true"] { border-color: var(--iris); background: var
 .cv-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .cv-code { margin: 0; height: 100%; overflow: auto; padding: 10px 12px; font: 12.5px/1.55 var(--mono, Consolas, monospace); color: var(--ink); white-space: pre; tab-size: 2; }
 .cv-code .ln { display: inline-block; width: 3.2em; margin-right: 10px; text-align: right; color: var(--ink-3); user-select: none; }
+.cv-img video { max-width: 100%; max-height: 100%; } .cv-img audio { width: min(420px, 90%); }
+.cv-nice { height: 100%; overflow: auto; background: #fff; color: #20242c; }
+.cv-table { border-collapse: collapse; font: 13px/1.5 var(--sans); } .cv-table td, .cv-table th { border: 1px solid #d7dbe3; padding: 3px 9px; white-space: pre-wrap; vertical-align: top; max-width: 420px; } .cv-table th { position: sticky; left: 0; background: #f1f3f7; color: #6a7280; font-weight: 400; text-align: right; user-select: none; }
+.cv-more { margin: 8px 12px; font-size: 12px; color: #6a7280; }
+.cv-md { padding: 20px 26px 40px; max-width: 820px; margin: 0 auto; font: 14.5px/1.75 var(--sans); word-break: keep-all; overflow-wrap: anywhere; } .cv-md table { border-collapse: collapse; } .cv-md td, .cv-md th { border: 1px solid #d7dbe3; padding: 4px 10px; } .cv-md pre { background: #f1f3f7; padding: 10px 12px; border-radius: 8px; overflow: auto; } .cv-md a { color: #3a57b7; } .cv-md code { background: #f1f3f7; color: inherit; } .cv-md h2, .cv-md h3, .cv-md h4 { line-height: 1.4; color: inherit; }
 .cv-empty, .cv-wait, .cv-note { padding: 18px; color: var(--ink-3); font-size: 13px; text-align: center; }
 .cv-err { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; line-height: 1.6; } .cv-err b { color: var(--ink); word-break: break-all; } .cv-errbtns { display: flex; gap: 8px; margin-top: 4px; }
 /* 캔버스 문서 보기(docview.js, P18 2026-11-24) */
@@ -1134,7 +1139,7 @@ button.tl-pill[aria-pressed="true"] { border-color: var(--iris); background: var
 .cv-pickin:focus { outline: none; border-color: var(--iris); }
 .cv-go { flex: none; font-size: 12px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--iris); background: var(--iris-soft); color: var(--ink); white-space: nowrap; }
 .cv-go:hover { background: var(--iris); color: #0a0c14; }
-.cv-toggle { position: relative; display: inline-flex; align-items: center; gap: 3px; }
+.cv-toggle { position: relative; display: inline-flex; align-items: center; gap: 4px; width: auto; min-width: 30px; padding: 0 7px; } .cv-toggle svg { flex: none; }
 .cv-toggle b { font-size: 10.5px; font-weight: 600; color: var(--ink-3); }
 .cv-toggle.on { color: var(--iris); }
 .cv-toggle.fresh::after { content: ""; position: absolute; top: 2px; right: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }

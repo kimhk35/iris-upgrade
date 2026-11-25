@@ -21,12 +21,14 @@ window.Canvas = (() => {
     if (e === 'html' || e === 'htm') return 'html';
     if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(e)) return 'img';
     if (e === 'pdf') return 'pdf';
+    if (['mp4', 'webm'].includes(e)) return 'video';
+    if (['mp3', 'wav'].includes(e)) return 'audio';
     if (['hwp', 'hwpx', 'doc', 'docx', 'rtf', 'odt', 'xls', 'xlsx', 'xlsm', 'ods', 'ppt', 'pptx', 'odp'].includes(e)) return 'doc';
     if (['js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'py', 'css', 'scss', 'json', 'md', 'txt', 'csv', 'tsv', 'xml', 'yml', 'yaml', 'toml', 'ini', 'ps1', 'cmd', 'bat', 'sh', 'sql', 'java', 'c', 'h', 'cpp', 'cs', 'go', 'rs', 'rb', 'php', 'kt', 'swift', 'vue', 'svelte', 'tex', 'r', 'lua'].includes(e)) return 'text';
     return null;
   };
   // 대화 글 속 절대 경로(미리볼 수 있는 것만) — app/transcript.js 의 삽입 규칙과 같은 모양
-  const PATH_RE = /(?:\/|file:\/\/\/)?[A-Za-z]:[\\/](?:[^\\/:*?"<>|\r\n`]+[\\/])*[^\\/:*?"<>|\r\n`]*?\.(?:html?|png|jpe?g|gif|webp|svg|bmp|pdf|hwpx?|docx?|xlsx?|pptx?)(?!\w)/gi;
+  const PATH_RE = /(?:\/|file:\/\/\/)?[A-Za-z]:[\\/](?:[^\\/:*?"<>|\r\n`]+[\\/])*[^\\/:*?"<>|\r\n`]*?\.(?:html?|png|jpe?g|gif|webp|svg|bmp|pdf|csv|mp4|webm|mp3|wav|hwpx?|docx?|xlsx?|pptx?)(?!\w)/gi;
   const norm = (p) => String(p).replace(/^file:\/\/\//i, '').replace(/^\/([A-Za-z]:)/, '$1').replace(/\//g, '\\');
   const isAbs = (p) => /^[A-Za-z]:[\\/]/.test(p);
   const join = (dir, rel) => { const parts = []; for (const s of `${dir}\\${rel}`.split(/[\\/]+/)) { if (s === '..') parts.pop(); else if (s && s !== '.') parts.push(s); } return parts.join('\\'); };
@@ -36,6 +38,8 @@ window.Canvas = (() => {
   let composer = null, host = null, wrap = null, toggleBtn = null;
   let sid = null, cwd = '', open = false, pick = false, timer = 0, lastMtime = null;
   const store = (() => { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { return {}; } })();
+  // 지운 대화의 기억이 끝없이 쌓이지 않게 최근 300개만
+  { const ks = Object.keys(store.sessions || {}); for (const k of ks.slice(0, Math.max(0, ks.length - 300))) delete store.sessions[k]; }
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch {} };
   const S = () => {
     if (!sid) return null;
@@ -49,7 +53,7 @@ window.Canvas = (() => {
     const p = norm(isAbs(path) ? path : (cwd ? join(cwd, path) : path));
     if (!isAbs(p) || !KIND(p)) return false;
     let f = st.files.find((x) => x.path.toLowerCase() === p.toLowerCase());
-    if (!f) { f = { path: p, kind: KIND(p), changed: 0 }; st.files.unshift(f); if (st.files.length > 30) st.files.length = 30; }
+    if (!f) { f = { path: p, kind: KIND(p), changed: 0 }; st.files.unshift(f); while (st.files.length > 30) { const k = st.files.findLastIndex((x) => x.path !== st.cur && x !== f); st.files.splice(k, 1); } } // 보고 있는 탭은 밀어내지 않는다
     if (written) {
       f.changed = Date.now(); f.at = at || f.at;
       if (st.follow || !st.cur) st.cur = f.path;
@@ -63,11 +67,12 @@ window.Canvas = (() => {
     if (!id || id === 'preview' || id !== sid) return;
     if (dir) cwd = dir;
     const st = S(); if (!st) return;
-    let wrote = false;
+    let wrote = false; const fresh = reset && !st.cur; // 처음 여는 대화는 가장 나중 파일부터
     for (const it of items || []) {
       if (it.kind === 'tool' && Array.isArray(it.files)) for (const f of it.files) wrote = add(f, { written: !reset, at: it.t }) || wrote;
       if (it.kind === 'assistant' && it.text) for (const m of String(it.text).matchAll(PATH_RE)) add(m[0], { written: false });
     }
+    if (fresh && st.files.length) st.cur = st.files[0].path;
     // 처음 파일이 생긴 세션은 한 번 저절로 연다(사용자가 닫았으면 존중)
     if (st.files.length && !st.autoOpened && !st.closedByUser && !open) { st.autoOpened = true; save(); show(true); return; }
     save(); render(wrote);
@@ -95,6 +100,7 @@ window.Canvas = (() => {
       const first = m[f.name], key = f.path.toLowerCase(), before = st.docs[key];
       if (f.mtime < first - 3000 || before === f.mtime) continue; // 그 전부터 있던 파일 · 이미 아는 판
       st.docs[key] = f.mtime;
+      const had = st.files.find((x) => x.path.toLowerCase() === key); if (had?.changed && f.mtime <= had.changed + 1500) continue; // 쓰기 도구로 이미 올린 파일 — 뒤에 쓴 파일에서 되돌아가지 않게
       if (quiet) add(f.path, { written: false }); else { add(f.path, { written: true }); wrote = true; }
     }
     if (st.files.length && !st.autoOpened && !st.closedByUser && !open) { st.autoOpened = true; save(); show(true); return; }
@@ -117,7 +123,7 @@ window.Canvas = (() => {
         <button type="button" class="cv-chip" data-cv="follow" title="가장 최근에 쓴 파일로 자동 이동">따라가기</button>
         <button type="button" class="cv-chip" data-cv="pick" title="미리보기에서 고칠 곳을 눌러 고릅니다(HTML)">고르기</button>
         <button type="button" class="cv-chip" data-cv="cmp" title="AI가 고치기 전 판과 견주고 되돌립니다" hidden>앞 판</button>
-        <span class="mnu"><button type="button" class="icon-btn" data-mnu aria-haspopup="menu" aria-expanded="false" title="더 보기" aria-label="더 보기">⋯</button><div class="mnu-pop" role="menu" hidden><button type="button" class="mnu-i" role="menuitem" data-cv="app" title="이 PC의 프로그램(파워포인트·워드·한/글 등)으로 원본 열기" hidden>원본 열기</button><button type="button" class="mnu-i" role="menuitem" data-cv="pdf" title="글자를 긁어 복사하거나 인쇄할 때" hidden>PDF로 보기</button><button type="button" class="mnu-i" role="menuitem" data-cv="ext">새 창에서 열기</button></div></span>
+        <span class="mnu"><button type="button" class="icon-btn" data-mnu aria-haspopup="menu" aria-expanded="false" title="더 보기" aria-label="더 보기">⋯</button><div class="mnu-pop" role="menu" hidden><button type="button" class="mnu-i" role="menuitem" data-cv="app" title="이 PC의 프로그램(파워포인트·워드·한/글 등)으로 원본 열기" hidden>원본 열기</button><button type="button" class="mnu-i" role="menuitem" data-cv="pdf" title="글자를 긁어 복사하거나 인쇄할 때" hidden>PDF로 보기</button><button type="button" class="mnu-i" role="menuitem" data-cv="plain" hidden>원래 글자로 보기</button><button type="button" class="mnu-i" role="menuitem" data-cv="ext">새 창에서 열기</button></div></span>
         <button type="button" class="icon-btn" data-cv="close" title="닫기 (Ctrl+Shift+K)">✕</button></div>
       <div class="cv-tabs" role="tablist"></div>
       <div class="cv-view"></div>
@@ -132,6 +138,8 @@ window.Canvas = (() => {
       if (a === 'follow') { st.follow = !st.follow; save(); return render(false); }
       if (a === 'pick') { pick = !pick; return render(true); }
       if (a === 'ext' && st?.cur) return window.open(curKind() === 'doc' ? `/api/doc?path=${encodeURIComponent(st.cur)}` : fsUrl(st.cur), '_blank');
+      if (a === 'drop' && st?.cur) { st.files = st.files.filter((x) => x.path !== st.cur); st.cur = st.files[0]?.path || null; save(); return render(true); }
+      if (a === 'plain' && st?.cur) { plain.has(st.cur) ? plain.delete(st.cur) : plain.add(st.cur); return render(true); }
       if (a === 'cmp' && st?.cur) return compare();
       if (a === 'pdf' && st?.cur) { asPdf.has(st.cur) ? asPdf.delete(st.cur) : asPdf.add(st.cur); shown = null; return render(true); }
       if (a === 'app' && st?.cur) return void fetch('/api/open', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: st.cur }) });
@@ -151,7 +159,9 @@ window.Canvas = (() => {
     // 「고르기」 결과: 지금 보이는 미리보기에서 온 말만 받는다(격리된 다른 출처라 출처 대신 보낸 창으로 확인)
     window.addEventListener('message', (e) => {
       const fr = host.querySelector('.cv-view iframe');
-      if (!fr || e.source !== fr.contentWindow || e.data?.type !== 'iris-pick') return;
+      if (!fr || e.source !== fr.contentWindow) return;
+      if (e.data?.type === 'iris-scroll' && Number.isFinite(e.data.y)) { keepY.set(fr.dataset.cvp, e.data.y); return; }
+      if (e.data?.type !== 'iris-pick') return;
       const inp = host.querySelector('.cv-pickin'); inp.value = String(e.data.text || e.data.selector || '').slice(0, 200); inp.dataset.sel = String(e.data.selector || '').slice(0, 200); inp.focus();
     });
     document.addEventListener('visibilitychange', () => { if (!document.hidden && open) check(); });
@@ -176,7 +186,8 @@ window.Canvas = (() => {
     host.querySelector('[data-cv="follow"]').classList.toggle('on', !!st.follow);
     const kind = curKind();
     const pb = host.querySelector('[data-cv="pick"]'); pb.hidden = kind !== 'html'; pb.classList.toggle('on', pick && kind === 'html');
-    host.querySelector('[data-cv="app"]').hidden = kind !== 'doc';
+    host.querySelector('[data-cv="app"]').hidden = kind !== 'doc' && !/\.(?:csv|tsv)$/i.test(st.cur || '');
+    const pl = host.querySelector('[data-cv="plain"]'); pl.hidden = !/\.(?:csv|tsv|md)$/i.test(st.cur || ''); pl.textContent = plain.has(st.cur) ? '보기 좋게 보기' : '원래 글자로 보기';
     if (kind !== 'doc') host.querySelector('[data-cv="cmp"]').hidden = true;
     const pd = host.querySelector('[data-cv="pdf"]'); pd.hidden = kind !== 'doc'; pd.classList.toggle('on', asPdf.has(st.cur)); pd.textContent = asPdf.has(st.cur) ? '원래 보기로' : 'PDF로 보기';
     host.querySelector('.cv-tabs').innerHTML = st.files.length
@@ -189,6 +200,9 @@ window.Canvas = (() => {
     if (reload) { lastMtime = null; tries = 0; draw(); }
   }
   const asPdf = new Set(); // 「PDF로 보기」를 켠 문서
+  const keepY = new Map(); // HTML 경로 → 보던 자리(다시 그려도 그 자리)
+  const plain = new Set(); // 표·글 모양 대신 원래 글자로 보는 파일(csv·md)
+  let gone = false; // 지금 탭의 파일이 사라져 안내를 보이는 중
   let drawNo = 0, tries = 0, shown = null; // drawNo = 마지막 그리기 번호(늦게 끝난 앞 그리기를 버린다), shown = 지금 화면에 있는 문서
   function goLabel() { const inp = host.querySelector('.cv-pickin'); host.querySelector('.cv-go').textContent = curKind() === 'html' ? '이 부분 고쳐 줘' : inp.dataset.auto ? (inp.dataset.unit === '쪽' ? '이 쪽 고쳐 줘' : '이 슬라이드 고쳐 줘') : '이 파일 고쳐 줘'; }
   /** 문서에서 누른 곳 → 「고칠 곳」. 사용자가 뒤에 적은 말은 그대로 두고 앞의 자리만 바꾼다. 직접 적은 글(자리가 없는 글)은 지우지 않는다. */
@@ -203,22 +217,47 @@ window.Canvas = (() => {
     if (kind !== 'doc') shown = null;
     if (!p) { view.innerHTML = `<div class="cv-empty">AI 가 HTML·그림·PDF·한글·워드·코드 파일을 만들거나 고치면 여기에 바로 보입니다.</div>`; return; }
     // 그리기 전에 그 파일의 바뀜 시각을 재어 기준으로 삼는다 — 그린 뒤 첫 확인까지의 틈에 바뀐 것을 놓치지 않게(P18 검사에서 발견)
-    if (mtime == null) { try { const j = await (await fetch(`/api/file/stat?path=${encodeURIComponent(p)}`)).json(); if (j.exists) mtime = j.mtime; } catch {} if (p !== S()?.cur || no !== drawNo) return; }
+    if (mtime == null) { try { const j = await (await fetch(`/api/file/stat?path=${encodeURIComponent(p)}`)).json(); if (j.exists) mtime = j.mtime; gone = !j.exists; } catch {} if (p !== S()?.cur || no !== drawNo) return; } else gone = false;
     lastMtime = mtime ?? null;
+    if (gone) { shown = null; view.innerHTML = `<div class="cv-empty cv-err"><b>${esc(base(p))}</b><span>이 자리에 파일이 없어요. 지웠거나 옮겼을 수 있어요. 다시 생기면 저절로 보여 드려요.</span><span class="cv-errbtns"><button type="button" class="cv-chip" data-cv="drop">목록에서 빼기</button></span></div>`; return; }
     const v = `?v=${Math.round(mtime || Date.now())}`;
-    if (kind === 'html') view.innerHTML = `<iframe class="cv-frame" sandbox="allow-scripts allow-popups allow-forms allow-modals" src="${fsUrl(p, v + (pick ? '&pick=1' : ''))}" title="${esc(base(p))}"></iframe>`;
+    if (kind === 'html') view.innerHTML = `<iframe class="cv-frame" sandbox="allow-scripts allow-popups allow-forms allow-modals" data-cvp="${esc(p)}" src="${fsUrl(p, v + (pick ? '&pick=1' : '') + (keepY.get(p) ? `&y=${keepY.get(p)}` : ''))}" title="${esc(base(p))}"></iframe>`;
     else if (kind === 'img') view.innerHTML = `<div class="cv-img"><img src="${fsUrl(p, v)}" alt="${esc(base(p))}"></div>`;
     else if (kind === 'pdf') view.innerHTML = `<iframe class="cv-frame" data-born="${Date.now()}" src="${fsUrl(p, v)}#navpanes=0&view=FitH" title="${esc(base(p))}"></iframe>`;
+    else if (kind === 'video') view.innerHTML = `<div class="cv-img"><video controls src="${fsUrl(p, v)}"></video></div>`;
+    else if (kind === 'audio') view.innerHTML = `<div class="cv-img"><audio controls src="${fsUrl(p, v)}"></audio></div>`;
     else if (kind === 'doc') return drawDoc(view, p, mtime, no);
     else {
       try {
         const r = await fetch(`/api/file/text?path=${encodeURIComponent(p)}`); const j = await r.json();
         if (!r.ok) throw new Error(j.error || r.status);
+        if (p !== S()?.cur || no !== drawNo) return;
+        const old = view.querySelector('.cv-text'), top = old?.dataset.cvp === p ? old.scrollTop : 0; // 같은 파일이면 보던 자리
+        const nice = /\.(?:csv|tsv|md)$/i.test(p) && !plain.has(p) ? (/\.md$/i.test(p) ? mdView(j.text) : tableView(j.text, /\.tsv$/i.test(p))) : '';
         const lines = String(j.text).split(/\r?\n/);
-        view.innerHTML = `<pre class="cv-code">${lines.map((l, i) => `<span class="ln">${i + 1}</span>${esc(l)}`).join('\n')}</pre>${j.truncated ? '<div class="cv-note">파일이 커서 앞부분만 보입니다</div>' : ''}`;
+        view.innerHTML = `${nice ? `<div class="cv-text cv-nice" data-cvp="${esc(p)}">${nice}</div>` : `<pre class="cv-code cv-text" data-cvp="${esc(p)}">${lines.map((l, i) => `<span class="ln">${i + 1}</span>${esc(l)}`).join('\n')}</pre>`}${j.truncated ? '<div class="cv-note">파일이 커서 앞부분만 보입니다</div>' : ''}`;
+        view.querySelector('.cv-text').scrollTop = top;
       } catch (e) { view.innerHTML = `<div class="cv-empty">이 파일을 열지 못했습니다(${esc(e.message)})</div>`; }
     }
   }
+  /** 쉼표 표(csv) → 표. 따옴표 속 쉼표·줄바꿈까지. 너무 길면 앞 2000줄. */
+  function tableView(text, tab) {
+    const sep = tab ? '\t' : (text.split('\n', 1)[0].match(/;/g) || []).length > (text.split('\n', 1)[0].match(/,/g) || []).length ? ';' : ',';
+    const rows = []; let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length && rows.length < 2001; i++) {
+      const c = text[i];
+      if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+      else if (c === '"' && !cell) q = true;
+      else if (c === sep) { row.push(cell); cell = ''; }
+      else if (c === '\n') { row.push(cell.replace(/\r$/, '')); rows.push(row); row = []; cell = ''; }
+      else cell += c;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    const more = rows.length > 2000; if (more) rows.length = 2000;
+    const w = Math.min(100, Math.max(0, ...rows.map((r) => r.length)));
+    return rows.length ? `<table class="cv-table">${rows.map((r, i) => `<tr><th>${i + 1}</th>${Array.from({ length: w }, (_, k) => `<td>${esc(r[k] ?? '')}</td>`).join('')}</tr>`).join('')}</table>${more ? '<p class="cv-more">앞 2000줄만 보입니다</p>' : ''}` : '';
+  }
+  const mdView = (text) => (text.trim() ? `<div class="cv-md">${Transcript.md(text)}</div>` : '');
   /** 문서: 먼저 PDF 로 바꾸고 쪽 그림을 준비해(pages) 다 되면 갈아 끼운다 — 바꾸는 동안 같은 문서의 앞 화면은 그대로 둔다. */
   async function drawDoc(view, p, mtime, no) {
     const live = () => no === drawNo && p === S()?.cur && open;
@@ -250,6 +289,7 @@ window.Canvas = (() => {
     if (p !== S()?.cur) return;
     if (!j.exists) { host.querySelector('.cv-live').classList.add('off'); return; }
     host.querySelector('.cv-live').classList.remove('off');
+    if (gone) { tries = 0; return void draw(j.mtime); }
     if (lastMtime === null) { lastMtime = j.mtime; return; }
     if (j.mtime !== lastMtime) {
       tries = 0; await draw(j.mtime);
