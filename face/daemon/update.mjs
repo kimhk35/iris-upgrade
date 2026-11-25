@@ -317,6 +317,7 @@ export class Updater {
     this.state.latest = latest;
     this.state.lastCheck = new Date(this.now()).toISOString();
     this.state.checkError = errors.length ? errors.join(' · ') : null;
+    this.pkgFailed = errors.some((e) => e.startsWith(PART_LABEL.package)); // 메신저만 못 읽은 것은 새 판 받기를 미룰 까닭이 아니다
     this.persist();
     const nw = this.newParts();
     this.log(`update check: ${PART_NAMES.map(n => `${n}=${latest[n]?.version || '?'}`).join(' ')} new=[${nw.join(',')}]${errors.length ? ` errors: ${errors.join(' · ')}` : ''}`);
@@ -329,8 +330,8 @@ export class Updater {
     let again = 0;
     const run = async () => {
       if (!this.enabled) return;
-      try { await this.check(); } catch (e) { this.state.checkError = e.message; this.log(`update check failed: ${e.message}`); }
-      if (this.state.checkError && again++ < 3) { const t = setTimeout(run, RETRY_CHECK_MS); t.unref?.(); this.timers.push(t); return; }
+      try { await this.check(); } catch (e) { this.state.checkError = e.message; this.pkgFailed = true; this.log(`update check failed: ${e.message}`); }
+      if (this.pkgFailed && again++ < 3) { const t = setTimeout(run, RETRY_CHECK_MS); t.unref?.(); this.timers.push(t); return; }
       try { await this.autoFetch(); } catch (e) { this.log(`update auto download failed: ${e.message}`); }
     };
     const t1 = setTimeout(run, FIRST_CHECK_MS), t2 = setInterval(() => { again = 0; run(); }, EVERY_MS);
